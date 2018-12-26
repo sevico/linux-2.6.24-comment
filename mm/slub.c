@@ -1372,25 +1372,35 @@ static void unfreeze_slab(struct kmem_cache *s, struct page *page)
  */
 static void deactivate_slab(struct kmem_cache *s, struct kmem_cache_cpu *c)
 {
+	//获得slab对象的第一个页面
 	struct page *page = c->page;
 	/*
 	 * Merge cpu freelist into freelist. Typically we get here
 	 * because both freelists are empty. So this is unlikely
 	 * to occur.
 	 */
+	 //遍历CPU缓存对象freelist
+	//循环，直到将所有空闲链表中的对象全部返还给slab
 	while (unlikely(c->freelist)) {
+		//获得第一个空闲对象
 		void **object;
 
 		/* Retrieve object from cpu_freelist */
+	//使CPU缓存对象空闲链表指向下一个空闲对象，也就是将freelist的第一个对象从CPU缓存对象中摘除
 		object = c->freelist;
 		c->freelist = c->freelist[c->offset];
 
 		/* And put onto the regular freelist */
+		//将slab对象的第一个对象链接到刚刚摘除下来的队列后面
 		object[c->offset] = page->freelist;
+		//将slab的空闲链表头指向刚刚摘除的对象。也就是将刚摘除的对象链接到slab的空闲链表中。
 		page->freelist = object;
+		//递减slab的使用计数
 		page->inuse--;
 	}
+	//CPU缓存对象已经解决与slab页面的绑定，设置其slab页面对象为NULL
 	c->page = NULL;
+	//调用unfreeze_slab。该函数将页面归还给kmem_cache的NUMA节点缓存，或者将其归还给伙伴系统，视情况而定
 	unfreeze_slab(s, page);
 }
 
@@ -1467,55 +1477,80 @@ static void *__slab_alloc(struct kmem_cache *s,
 {
 	void **object;
 	struct page *new;
-
+	//如果当前CPU缓存的slab还不存在
 	if (!c->page)
+		//跳转到new_slab标签处，从伙伴系统中分配slab页面
 		goto new_slab;
-
+	//锁住页面
+	//实际上，PG_locked主要用于磁盘IO时的页面锁定，防止形成并发问题。但是在SLUB分配器中，相应的页并不会被磁盘IO交换出去
+	//这里仅仅是借用PG_locked标志来保护page结构中，与SLUB分配器相关的几个字段。
 	slab_lock(c->page);
+	//如果slab所在的NUMA节点编号与所要求的不匹配，也就是调用者希望在特定NUMA节点上分配对象，而当前缓存的slab位于另外的节点
 	if (unlikely(!node_match(c, node)))
+		//跳转到another_slab，分配另外一个slab并缓存到当前CPU
 		goto another_slab;
 load_freelist:
+	//获取当前slab的第一个空闲对象
 	object = c->page->freelist;
 	if (unlikely(!object))
 		goto another_slab;
 	if (unlikely(SlabDebug(c->page)))
 		goto debug;
-
+	//将slab的空闲对象指针下移到下一个空闲对象，并将其交给kmem_cache_cpu对象管理，此后空闲链表不再属于slab对象
 	object = c->page->freelist;
 	c->freelist = object[c->offset];
 	c->page->inuse = s->objects;
+	//slab中所有对象已经交给kmem_cache_cpu进行管理，那么slab的空闲对象链表也应当设置为NULL
 	c->page->freelist = NULL;
+	//设置kmem_cache_cpu的节点号为页面所在的节点
 	c->node = page_to_nid(c->page);
+	//slab中的相关数据结构已经设置完毕，释放页面锁
 	slab_unlock(c->page);
+	//返回分配成功的对象
 	return object;
 
 another_slab:
+	//当CPU中缓存的slab对象kmem_cache_cpu，与调用者期望的NUMA节点不一致时，跳转到这里，调用deactivate_slab解除当前slab与CPU之前的绑定关系
 	deactivate_slab(s, c);
-
+	//当缓存的slab还没有分配页面时，跳转到这里，为当前CPU分配可用页面
 new_slab:
+	//调用get_partial，优先从特定NUMA节点中获得一个半满slab
 	new = get_partial(s, gfpflags, node);
+	//如果成功的从NUMA节点中获得一个半满slab
 	if (new) {
+		//设置当前CPU缓存的slab为该slab
 		c->page = new;
+		//开始从缓存的slab中分配对象
 		goto load_freelist;
 	}
-
+	//否则，需要从伙伴系统中分配新页。如果分配标志允许在页面不足时睡眠等待
 	if (gfpflags & __GFP_WAIT)
+		//强制打开中断.因为在关中断下等待睡眠是非法的，而上层调用函数关闭了中断，所以此处必须打开
 		local_irq_enable();
-
+	//从伙伴系统中分配新的页面，形成一个slab
 	new = new_slab(s, gfpflags, node);
-
+	//如果分配标志允许在页面不足时睡眠等待，则说明前面强制打开了中断
 	if (gfpflags & __GFP_WAIT)
+		//强制关闭中断，与之前匹配
 		local_irq_disable();
-
+	//如果成功的从伙伴系统中分配到页面
 	if (new) {
+		//获得当前CPU缓存的slab对象
 		c = get_cpu_slab(s, smp_processor_id());
+		//如果当前CPU缓存的slab对象真实有效
 		if (c->page)
+			//调用flush_slab解除当前slab对象与CPU之间的关系
 			flush_slab(s, c);
+		//为slab而锁住新分配的页面
 		slab_lock(new);
+		//设置当前页面frozen标志，表示当前分配的页面用于当前CPU的页面分配，避免被其他CPU竞争走
 		SetSlabFrozen(new);
+		//将新分配的页面与当前CPU绑定，这样新页面将可用于SLUB分配器
 		c->page = new;
+		//进入正常的分配流程
 		goto load_freelist;
 	}
+	//否则，从伙伴系统c中分配页面失败，向调用者返回NULL
 	return NULL;
 debug:
 	object = c->page->freelist;
@@ -1545,22 +1580,28 @@ static void __always_inline *slab_alloc(struct kmem_cache *s,
 	void **object;
 	unsigned long flags;
 	struct kmem_cache_cpu *c;
-
+	//关闭本地CPU中断
+	//在此，关闭中断有两个目的：A、避免中断打断当前slab_alloc的执行，造成逻辑错误。因为随后的代码需要维护kmem_cache_cpu数据结构。B、防止进程被迁移到其他CPU上执行。
 	local_irq_save(flags);
+	//获得当前CPU对应的kmem_cache_cpu数据结构。该数据结构是当前CPU缓存的，用于内存分配的slab
 	c = get_cpu_slab(s, smp_processor_id());
+	//如果（1）CPU缓存的slab没有空闲对象了，或者（2）调用者希望从特定NUMA节点中分配数据，而缓存的slab所在的节点与之并不匹配（1577行），那么
 	if (unlikely(!c->freelist || !node_match(c, node)))
-
+		//调用__slab_alloc分配对象，这是慢速分配过程
 		object = __slab_alloc(s, gfpflags, node, addr, c);
 
 	else {
+		//从kmem_cache_cpu数据结构中，获得第一个空闲对象
 		object = c->freelist;
+		//将kmem_cache_cpu数据结构的空闲对象后移到下一个空闲对象。下一个空闲对象指针保存在当前空闲对象的offset偏移处
 		c->freelist = object[c->offset];
 	}
+	//恢复本地CPU中断
 	local_irq_restore(flags);
-
+	//如果（1）调用者要求将对象初始化为0，并且（2）成功分配了对象，那么：调用memset将对象置0
 	if (unlikely((gfpflags & __GFP_ZERO) && object))
 		memset(object, 0, c->objsize);
-
+	//返回所分配的对象，可能为NULL
 	return object;
 }
 
@@ -1591,20 +1632,25 @@ static void __slab_free(struct kmem_cache *s, struct page *page,
 {
 	void *prior;
 	void **object = (void *)x;
-
+	//获得slab的自旋锁
 	slab_lock(page);
-
+	//处理slab的调试信息
 	if (unlikely(SlabDebug(page)))
 		goto debug;
 checks_ok:
+	//将slab的空闲链表链接到当前对象后面
 	prior = object[offset] = page->freelist;
+	//将当前对象作为slab的空闲链表头
 	page->freelist = object;
+	//递减slab的使用计数
 	page->inuse--;
-
+	//如果当前页面有frozen标志，表示该slab由当前CPU锁定，其他CPU不能在此slab中分配。因此不能将其归还给节点或者伙伴系统
 	if (unlikely(SlabFrozen(page)))
+	//跳转到un_lock标签，并退出
 		goto out_unlock;
-
+	//如果当前slab全部对象都被释放了，那么
 	if (unlikely(!page->inuse))
+	//跳转到slab_empty，将页面释放回伙伴系统
 		goto slab_empty;
 
 	/*
@@ -1612,21 +1658,26 @@ checks_ok:
 	 * was not on the partial list before
 	 * then add it.
 	 */
+	 //如果在释放对象之前，slab是全满的，现在变为半满了，那么
 	if (unlikely(!prior))
+		//调用add_partial_tail将其添加到NUMA节点的半满链表中
 		add_partial_tail(get_node(s, page_to_nid(page)), page);
 
 out_unlock:
+	//释放slab的自旋锁
 	slab_unlock(page);
 	return;
-
+//如果（1）释放当前对象之前，slab为半满状态。（2）当前已经全空（1652行），那么
 slab_empty:
 	if (prior)
 		/*
 		 * Slab still on the partial list.
 		 */
+		 //从NUMA半满链表中摘除
 		remove_partial(s, page);
-
+	//释放slab的自旋锁
 	slab_unlock(page);
+	//将页面归还给伙伴系统
 	discard_slab(s, page);
 	return;
 
@@ -1653,25 +1704,34 @@ static void __always_inline slab_free(struct kmem_cache *s,
 	void **object = (void *)x;
 	unsigned long flags;
 	struct kmem_cache_cpu *c;
-
+	//关闭当前CPU本地中断
 	local_irq_save(flags);
+	//安全性检查工作
 	debug_check_no_locks_freed(object, s->objsize);
+	//获得当前CPU缓存slab对象
 	c = get_cpu_slab(s, smp_processor_id());
+	//如果（1）要释放的内存位于CPU缓存slab对象中，并且（2）当前CPU缓存slab对象的节点编号大于等于0(一般是满足的，小于0的情况，只存在于作者的调试代码中)，那么进入快速释放流程
 	if (likely(page == c->page && c->node >= 0)) {
+		//将freelist链接到被释放对象的后面
 		object[c->offset] = c->freelist;
+		//将freelist指向当前对象（1712行），实际上是将当前对象置为freelist头
 		c->freelist = object;
 	} else
+		//否则调用__slab_free进入慢速释放流程
 		__slab_free(s, page, x, addr, c->offset);
-
+	//打开中断
 	local_irq_restore(flags);
 }
 
 void kmem_cache_free(struct kmem_cache *s, void *x)
 {
 	struct page *page;
+	//根据对象地址，找到其所在的slab对象
+	//根据对象地址找到其页面page结构
+	//在page结构中，根据first_page找到伙伴系统中的领头页面
 
 	page = virt_to_head_page(x);
-
+	//调用slab_free将对象返回给slab
 	slab_free(s, page, x, __builtin_return_address(0));
 }
 EXPORT_SYMBOL(kmem_cache_free);
@@ -2194,25 +2254,31 @@ static int kmem_cache_open(struct kmem_cache *s, gfp_t gfpflags,
 		size_t align, unsigned long flags,
 		void (*ctor)(struct kmem_cache *, void *))
 {
+	//将kmem_cache描述符置0
 	memset(s, 0, kmem_size);
+	//设置其name，ctor等初始值
 	s->name = name;
 	s->ctor = ctor;
 	s->objsize = size;
 	s->align = align;
 	s->flags = kmem_cache_flags(size, flags, name, ctor);
-
+	//计算对象长度、在伙伴系统中分配slab页面的order值
+	//如果值过大，无法通过SLUB内存分配器管理，则返回错误
 	if (!calculate_sizes(s))
 		goto error;
 
 	s->refcount = 1;
 #ifdef CONFIG_NUMA
+	//设置防碎片调节参数
 	s->defrag_ratio = 100;
 #endif
+	//为kmem_cache对象初始化NUMA节点缓存相关的数据结构。注意，在系统初始化阶段，需要调用boot内存分配函数来分配相关数据结构。在SLUB初始化完毕后，由SLUB系统自身来分配相应的数据结构。
 	if (!init_kmem_cache_nodes(s, gfpflags & ~SLUB_DMA))
 		goto error;
-
+	//为kmem_cache对象初始化每CPU缓存slab数据结构
 	if (alloc_kmem_cache_cpus(s, gfpflags & ~SLUB_DMA))
 		return 1;
+	//如果初始化失败，则释放前面分配的NUMA节点缓存数据结构
 	free_kmem_cache_nodes(s);
 error:
 	if (flags & SLAB_PANIC)
@@ -2947,46 +3013,64 @@ struct kmem_cache *kmem_cache_create(const char *name, size_t size,
 		void (*ctor)(struct kmem_cache *, void *))
 {
 	struct kmem_cache *s;
-
+	//该锁保护全局kmem_cache链表
 	down_write(&slub_lock);
+	 //查找与当前创建参数匹配的，可以合并的kmem_cache对象
 	s = find_mergeable(size, align, flags, name, ctor);
+	 //如果这样的kmem_cache对象存在
 	if (s) {
 		int cpu;
-
+		//增加kmem_cache对象的引用计数
 		s->refcount++;
 		/*
 		 * Adjust the object sizes so that we clear
 		 * the complete object on kzalloc.
 		 */
+		 //修正kmem_cache对象的对象大小
 		s->objsize = max(s->objsize, (int)size);
 
 		/*
 		 * And then we need to update the object size in the
 		 * per cpu structures
 		 */
+		 //遍历所有CPU，修改所有CPU缓存slab中的对象大小
 		for_each_online_cpu(cpu)
 			get_cpu_slab(s, cpu)->objsize = s->objsize;
+		////改变kmem_cache对象inuse值
 		s->inuse = max_t(int, s->inuse, ALIGN(size, sizeof(void *)));
+		////释放slub_lock写锁
 		up_write(&slub_lock);
+		// //在sys文件系统中，为新创建的kmem_cache对象创建别名，将其链接到原对象上
 		if (sysfs_slab_alias(s, name))
 			goto err;
+		////返回匹配的kmem_cache对象
 		return s;
 	}
+	//否则，没有匹配的kmem_cache对象，必须要新创建一个。首先为kmem_cache描述符分配内存
 	s = kmalloc(kmem_size, GFP_KERNEL);
 	if (s) {
+		//调用kmem_cache_open将kmem_cache描述符准备就绪
 		if (kmem_cache_open(s, GFP_KERNEL, name,
 				size, align, flags, ctor)) {
+			//将kmem_cache描述符添加到全局slab_caches链表中
 			list_add(&s->list, &slab_caches);
+			//释放slub_lock写锁
 			up_write(&slub_lock);
+			//在sys文件系统中，为新创建的kmem_cache对象创建文件对象
 			if (sysfs_slab_add(s))
 				goto err;
+			//返回新创建的kmem_cache对象
 			return s;
 		}
+		//否则，创建kmem_cache不成功，释放其描述符
 		kfree(s);
 	}
+	//释放slub_lock写锁
 	up_write(&slub_lock);
+//运行到此，说明创建过程中出现错误
 
 err:
+	//如果调用者传入了SLAB_PANIC标志，则将系统hung住
 	if (flags & SLAB_PANIC)
 		panic("Cannot create slabcache %s\n", name);
 	else

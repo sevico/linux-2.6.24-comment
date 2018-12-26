@@ -12,17 +12,26 @@
 #include <linux/kobject.h>
 
 struct kmem_cache_cpu {
+//空闲对象队列的指针，即第一个空闲对象的指针
 	void **freelist;
+//	slab的第一个物理页框描述符，保存slab的元数据
 	struct page *page;
+//处理器所在NUMA节点号
 	int node;
+//在空闲对象中，存放下一个空闲对象指针的偏移	
 	unsigned int offset;
+//对象实际大小，与kmem_cache结构objsize字段一致
 	unsigned int objsize;
 };
 
 struct kmem_cache_node {
+	//保护本数据结构的自旋锁	
 	spinlock_t list_lock;	/* Protect partial list and nr_partial */
+	//本节点半满slab的数目
 	unsigned long nr_partial;
+	//	本节点slab的总数
 	atomic_long_t nr_slabs;
+	//半满slab 的链表头
 	struct list_head partial;
 #ifdef CONFIG_SLUB_DEBUG
 	struct list_head full;
@@ -34,35 +43,51 @@ struct kmem_cache_node {
  */
 struct kmem_cache {
 	/* Used for retriving partial slabs etc */
+	//描述缓冲区属性的一组标志
 	unsigned long flags;
+	//分配给对象的内存大小，包含对象元数据，例如空闲链表指针，因此可能大于对象的实际大小
 	int size;		/* The size of an object including meta data */
+	//对象的实际大小，不包含对象元数据
 	int objsize;		/* The size of an object without meta data */
+	//空闲对象指针在对象中的偏移值
 	int offset;		/* Free pointer offset. */
+	//表示一个slab需要2^order个物理页框，用于伙伴系统	
 	int order;
 
 	/*
 	 * Avoid an extra cache line for UP, SMP and for the node local to
 	 * struct kmem_cache.
 	 */
+	 //	创建缓冲区的NUMA节点，其中包括后备半满缓冲池
 	struct kmem_cache_node local_node;
 
 	/* Allocation and freeing of slabs */
+	//一个slab中的对象总个数	
 	int objects;		/* Number of objects in slab */
+	//引用计数计数器。当新创建的缓冲区可以与已有缓冲区合并时，增加原有缓冲区引用计数。
 	int refcount;		/* Refcount for slab cache destroy */
+	//创建slab时，用于初始化每个对象的构造函数
 	void (*ctor)(struct kmem_cache *, void *);
+	//对象元数据在对象中的偏移	
 	int inuse;		/* Offset to metadata */
+	//对齐要求
 	int align;		/* Alignment */
+	//缓冲区名字
 	const char *name;	/* Name (only for display!) */
+	//包含所有缓冲区描述结构的双向循环队列，队列头为 slab_caches
 	struct list_head list;	/* List of slab caches */
 #ifdef CONFIG_SLUB_DEBUG
 	struct kobject kobj;	/* For sysfs */
 #endif
 
 #ifdef CONFIG_NUMA
+	//防磁片的调节值，该值越小，越倾向于从本节点中分配对象	
 	int defrag_ratio;
+//所有可用的NUMA节点，这些节点中的后备半满slab均可以用于本缓冲区内存分配
 	struct kmem_cache_node *node[MAX_NUMNODES];
 #endif
 #ifdef CONFIG_SMP
+//为每个处理器创建的缓存slab数据结构，以加快每个CPU上的分配速度，降低锁竞争
 	struct kmem_cache_cpu *cpu_slab[NR_CPUS];
 #else
 	struct kmem_cache_cpu cpu_slab;
