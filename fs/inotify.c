@@ -287,7 +287,7 @@ void inotify_inode_queue_event(struct inode *inode, u32 mask, u32 cookie,
 			       const char *name, struct inode *n_inode)
 {
 	struct inotify_watch *watch, *next;
-
+	//判断对应的inode是否被监视
 	if (!inotify_inode_watched(inode))
 		return;
 

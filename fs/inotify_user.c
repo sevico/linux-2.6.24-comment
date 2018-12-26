@@ -74,6 +74,7 @@ int inotify_max_queued_events __read_mostly;
 struct inotify_device {
 	wait_queue_head_t 	wq;		/* wait queue for i/o */
 	struct mutex		ev_mutex;	/* protects event queue */
+	//用于同步对该结构的访问
 	struct mutex		up_mutex;	/* synchronizes watch updates */
 	struct list_head 	events;		/* list of queued events */
 	atomic_t		count;		/* reference count */
@@ -547,11 +548,11 @@ asmlinkage long sys_inotify_init(void)
 	struct user_struct *user;
 	struct file *filp;
 	int fd, ret;
-
+	//获取一个未使用的fd
 	fd = get_unused_fd();
 	if (fd < 0)
 		return fd;
-
+	//获取空文件指针filep
 	filp = get_empty_filp();
 	if (!filp) {
 		ret = -ENFILE;
@@ -564,7 +565,7 @@ asmlinkage long sys_inotify_init(void)
 		ret = -EMFILE;
 		goto out_free_uid;
 	}
-
+	//给inotify_device分配空间
 	dev = kmalloc(sizeof(struct inotify_device), GFP_KERNEL);
 	if (unlikely(!dev)) {
 		ret = -ENOMEM;
@@ -577,7 +578,7 @@ asmlinkage long sys_inotify_init(void)
 		goto out_free_dev;
 	}
 	dev->ih = ih;
-
+	//初始化filep
 	filp->f_op = &inotify_fops;
 	filp->f_path.mnt = mntget(inotify_mnt);
 	filp->f_path.dentry = dget(inotify_mnt->mnt_root);
@@ -585,7 +586,7 @@ asmlinkage long sys_inotify_init(void)
 	filp->f_mode = FMODE_READ;
 	filp->f_flags = O_RDONLY;
 	filp->private_data = dev;
-
+	//初始化intofiy_device
 	INIT_LIST_HEAD(&dev->events);
 	init_waitqueue_head(&dev->wq);
 	mutex_init(&dev->ev_mutex);
@@ -595,7 +596,7 @@ asmlinkage long sys_inotify_init(void)
 	dev->max_events = inotify_max_queued_events;
 	dev->user = user;
 	atomic_set(&dev->count, 0);
-
+	//intofiy_device的引用计数加1
 	get_inotify_dev(dev);
 	atomic_inc(&user->inotify_devs);
 	fd_install(fd, filp);
@@ -703,7 +704,7 @@ static struct file_system_type inotify_fs_type = {
 static int __init inotify_user_setup(void)
 {
 	int ret;
-
+	//初始化inotifyfs
 	ret = register_filesystem(&inotify_fs_type);
 	if (unlikely(ret))
 		panic("inotify: register_filesystem returned %d!\n", ret);
@@ -711,11 +712,11 @@ static int __init inotify_user_setup(void)
 	inotify_mnt = kern_mount(&inotify_fs_type);
 	if (IS_ERR(inotify_mnt))
 		panic("inotify: kern_mount ret %ld!\n", PTR_ERR(inotify_mnt));
-
+	//设置事件队列的长度等
 	inotify_max_queued_events = 16384;
 	inotify_max_user_instances = 128;
 	inotify_max_user_watches = 8192;
-
+	//创建inotify_event和inotify_watch结构的slab缓存
 	watch_cachep = kmem_cache_create("inotify_watch_cache",
 					 sizeof(struct inotify_user_watch),
 					 0, SLAB_PANIC, NULL);
