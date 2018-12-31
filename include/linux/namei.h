@@ -30,7 +30,9 @@ struct nameidata {
 };
 
 struct path {
+	/* 含有该文件的已安装文件系统 */
 	struct vfsmount *mnt;
+	/* 与文件相关的目录项对象 */
 	struct dentry *dentry;
 };
 

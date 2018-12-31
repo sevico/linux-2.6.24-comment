@@ -84,39 +84,96 @@ struct kioctx;
  * once.  ki_retry must ensure forward progress, the AIO core will wait
  * indefinitely for kick_iocb() to be called.
  */
+ /**
+ * 同步和异步Io操作的完成状态。
+ */
 struct kiocb {
+	/**
+	 * 要重新操作的IO链表指针。
+	 */
 	struct list_head	ki_run_list;
+	/**
+	 * 描述符标志
+	 */
 	unsigned long		ki_flags;
+	/**
+	 * 描述符的引用计数器。
+	 */
 	int			ki_users;
+	/**
+	 * 异步IO操作标识符。同步IO操作标识符为0xffffffff
+	 */
 	unsigned		ki_key;		/* id of this request */
+	/**
+		 * IO操作相关的文件对象指针
+	*/
 
 	struct file		*ki_filp;
+	/**
+	 * 异步IO环境描述符指针
+	 */
 	struct kioctx		*ki_ctx;	/* may be NULL for sync ops */
+	/**
+	 * 取消异步Io操作时的回调方法。
+	 */
 	int			(*ki_cancel)(struct kiocb *, struct io_event *);
+	/**
+	 * 重试异步IO时的回调方法。
+	 */
 	ssize_t			(*ki_retry)(struct kiocb *);
+	/**
+	 * 清除kiocb描述符时的回调方法。
+	 */
 	void			(*ki_dtor)(struct kiocb *);
-
+	/**
+	 * 对于同步操作，这旨指向发出该操作的进程描述符的指针。
+	 * 对于异步操作，它是指向用户态数据结构iocb的指针。
+	 */
 	union {
 		void __user		*user;
 		struct task_struct	*tsk;
 	} ki_obj;
-
+	/**
+	 * 给用户态进程返回的值。
+	 */
 	__u64			ki_user_data;	/* user's data for completion */
+	/**
+	 * 异步IO操作等待队列。
+	 */
 	wait_queue_t		ki_wait;
+	/**
+	 * 正在进行IO操作的当前文件位置。
+	 */
 	loff_t			ki_pos;
 
 	atomic_t		ki_bio_count;	/* num bio used for this iocb */
+	/**
+	 * 由文件系统层自由使用。
+	 */
 	void			*private;
-	/* State that we remember to be able to restart/retry  */
+	/* State that we remember to be able to restart/retry 
+	操作类型:read,write,sync
+	*/
 	unsigned short		ki_opcode;
+	/**
+	 * 被传输的字节数。
+	 */
 	size_t			ki_nbytes; 	/* copy of iocb->aio_nbytes */
+	/**
+	 * 用户态缓冲区的当前位置。
+	 */
 	char 			__user *ki_buf;	/* remaining iocb->aio_buf */
+	/**
+	 * 待传输的字节数。
+	 */
 	size_t			ki_left; 	/* remaining bytes */
 	struct iovec		ki_inline_vec;	/* inline vector */
  	struct iovec		*ki_iovec;
  	unsigned long		ki_nr_segs;
  	unsigned long		ki_cur_seg;
-
+	/**
+	 * 在异步操作环境下，当前进行的IO操作链表的指针。
+	 */
 	struct list_head	ki_list;	/* the aio core uses this
 						 * for cancellation */
 

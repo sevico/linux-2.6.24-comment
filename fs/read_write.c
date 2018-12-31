@@ -192,7 +192,9 @@ bad:
  * won't have to do range checks all the time.
  */
 #define MAX_RW_COUNT (INT_MAX & PAGE_CACHE_MASK)
-
+/**
+ * 检查文件读写区域
+ */
 int rw_verify_area(int read_write, struct file *file, loff_t *ppos, size_t count)
 {
 	struct inode *inode;
@@ -202,9 +204,12 @@ int rw_verify_area(int read_write, struct file *file, loff_t *ppos, size_t count
 	if (unlikely((ssize_t) count < 0))
 		goto Einval;
 	pos = *ppos;
+	/**
+	 * 溢出检查。
+	 */
 	if (unlikely((pos < 0) || (loff_t) (pos + count) < 0))
 		goto Einval;
-
+	/* 锁冲突检查 */
 	if (unlikely(inode->i_flock && mandatory_lock(inode))) {
 		int retval = locks_mandatory_area(
 			read_write == READ ? FLOCK_VERIFY_READ : FLOCK_VERIFY_WRITE,
@@ -230,19 +235,21 @@ static void wait_on_retry_sync_kiocb(struct kiocb *iocb)
 
 ssize_t do_sync_read(struct file *filp, char __user *buf, size_t len, loff_t *ppos)
 {
+	//缓冲区地址跟长度保存到iovec结构中
 	struct iovec iov = { .iov_base = buf, .iov_len = len };
+	//根据记录即将进行I/O操作的完成状态
 	struct kiocb kiocb;
 	ssize_t ret;
 
 	init_sync_kiocb(&kiocb, filp);
 	kiocb.ki_pos = *ppos;
-	kiocb.ki_left = len;
+	kiocb.ki_left = len;//还未完成传输字节数目
 
 	for (;;) {
 		ret = filp->f_op->aio_read(&kiocb, &iov, 1, kiocb.ki_pos);
 		if (ret != -EIOCBRETRY)
 			break;
-		wait_on_retry_sync_kiocb(&kiocb);
+		wait_on_retry_sync_kiocb(&kiocb);//等待I/O操作完
 	}
 
 	if (-EIOCBQUEUED == ret)
@@ -257,24 +264,29 @@ ssize_t vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
 {
 	ssize_t ret;
 
-	if (!(file->f_mode & FMODE_READ))
+	if (!(file->f_mode & FMODE_READ))//检测是否允许访问读写
 		return -EBADF;
+	//文件操作不能为空，并且read跟aio_read其中之一不可以为空
 	if (!file->f_op || (!file->f_op->read && !file->f_op->aio_read))
 		return -EINVAL;
+	//检测buf是否合法
 	if (unlikely(!access_ok(VERIFY_WRITE, buf, count)))
 		return -EFAULT;
-
+	//检测文件部分是否有冲突的强制锁
 	ret = rw_verify_area(READ, file, pos, count);
 	if (ret >= 0) {
 		count = ret;
 		ret = security_file_permission (file, MAY_READ);
 		if (!ret) {
+			//ext2的文件系统的file->f_op->read也是do_sync_read
 			if (file->f_op->read)
 				ret = file->f_op->read(file, buf, count, pos);
 			else
 				ret = do_sync_read(file, buf, count, pos);
 			if (ret > 0) {
+				//通知已经被读取
 				fsnotify_access(file->f_path.dentry);
+				//增加进程读取字节数
 				add_rchar(current, ret);
 			}
 			inc_syscr(current);
@@ -359,13 +371,13 @@ asmlinkage ssize_t sys_read(unsigned int fd, char __user * buf, size_t count)
 	struct file *file;
 	ssize_t ret = -EBADF;
 	int fput_needed;
-
+	//获取fd对应的file结构，对fd的引用计数+1
 	file = fget_light(fd, &fput_needed);
 	if (file) {
-		loff_t pos = file_pos_read(file);
-		ret = vfs_read(file, buf, count, &pos);
-		file_pos_write(file, pos);
-		fput_light(file, fput_needed);
+		loff_t pos = file_pos_read(file);//获取文件位置index
+		ret = vfs_read(file, buf, count, &pos);//使用vfs_read读写
+		file_pos_write(file, pos); //更新文件读写位置
+		fput_light(file, fput_needed);//引用计数减1
 	}
 
 	return ret;

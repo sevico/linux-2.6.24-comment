@@ -36,17 +36,47 @@ struct mnt_namespace;
 #define MNT_PNODE_MASK	0x3000	/* propagation flag mask */
 
 struct vfsmount {
+	/**
+		 * 用于散列表链表的指针。
+	*/
 	struct list_head mnt_hash;
+	/**
+	 * 指向父文件系统，这个文件系统安装在其上。
+	 */
 	struct vfsmount *mnt_parent;	/* fs we are mounted on */
+	/**
+	 * 安装点目录节点。
+	 */
 	struct dentry *mnt_mountpoint;	/* dentry of mountpoint */
+	/**
+	 * 指向这个文件系统根目录的dentry。
+	 */
 	struct dentry *mnt_root;	/* root of the mounted tree */
+	/**
+	 * 该文件系统的超级块对象。
+	 */
 	struct super_block *mnt_sb;	/* pointer to superblock */
+	/**
+	 * 子挂载点链表表头
+	 */
 	struct list_head mnt_mounts;	/* list of children, anchored here */
+	/**
+	 * 已安装文件系统链表头。通过此字段将其加入父文件系统的mnt_mounts链表中。
+	 */
 	struct list_head mnt_child;	/* and going through their mnt_child */
+	/**
+	 * mount标志
+	 */
 	int mnt_flags;
 	/* 4 bytes hole on 64bits arches */
+	/**
+	 * 设备文件名。
+	 */
 	char *mnt_devname;		/* Name of device e.g. /dev/dsk/hda1 */
 	struct list_head mnt_list;
+	/**
+	 * 如果文件系统标记为过期，就设置这个标志。
+	 */
 	struct list_head mnt_expire;	/* link in fs-specific expiry list */
 	struct list_head mnt_share;	/* circular list of shared mounts */
 	struct list_head mnt_slave_list;/* list of slave mounts */
@@ -57,6 +87,9 @@ struct vfsmount {
 	 * We put mnt_count & mnt_expiry_mark at the end of struct vfsmount
 	 * to let these frequently modified fields in a separate cache line
 	 * (so that reads of mnt_flags wont ping-pong on SMP machines)
+	 */
+	 /**
+	 * 引用计数器，禁止文件系统被卸载。
 	 */
 	atomic_t mnt_count;
 	int mnt_expiry_mark;		/* true if marked for expiry */

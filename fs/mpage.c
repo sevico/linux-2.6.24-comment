@@ -164,13 +164,22 @@ map_buffer_to_page(struct page *page, struct buffer_head *bh, int page_block)
  * represent the validity of its disk mapping and to decide when to do the next
  * get_block() call.
  */
+ /**
+ * 对大多数文件来说，本函数是其readpage的实现方法。
+ */
 static struct bio *
 do_mpage_readpage(struct bio *bio, struct page *page, unsigned nr_pages,
 		sector_t *last_block_in_bio, struct buffer_head *map_bh,
 		unsigned long *first_logical_block, get_block_t get_block)
 {
 	struct inode *inode = page->mapping->host;
+	/**
+	 * 得到块的大小(对数)
+	 */
 	const unsigned blkbits = inode->i_blkbits;
+	/**
+	 * 页中的块数
+	 */
 	const unsigned blocks_per_page = PAGE_CACHE_SIZE >> blkbits;
 	const unsigned blocksize = 1 << blkbits;
 	sector_t block_in_file;
@@ -184,10 +193,16 @@ do_mpage_readpage(struct bio *bio, struct page *page, unsigned nr_pages,
 	int fully_mapped = 1;
 	unsigned nblocks;
 	unsigned relative_block;
+	/**
+		 * 检查page的PG_private标志，如果该标志被置位，那么表示该页已经从磁盘上读入过，而且页中的块在磁盘上不是相邻的。
+		 * 因此以一次读一块的方式读取该页。
+		 */
 
 	if (page_has_buffers(page))
 		goto confused;
-
+	/**
+	 * 页中第一块的文件块号。
+	 */
 	block_in_file = (sector_t)page->index << (PAGE_CACHE_SHIFT - blkbits);
 	last_block = block_in_file + nr_pages * blocks_per_page;
 	last_block_in_file = (i_size_read(inode) + blocksize - 1) >> blkbits;
@@ -229,11 +244,19 @@ do_mpage_readpage(struct bio *bio, struct page *page, unsigned nr_pages,
 
 		if (block_in_file < last_block) {
 			map_bh->b_size = (last_block-block_in_file) << blkbits;
+			/**
+			 * 调用get_block得到逻辑块号，即相对于磁盘或分区开始位置的块索引。
+			 * 页中每一块的逻辑号存放在一个本地数据中。
+			 */
 			if (get_block(inode, block_in_file, map_bh, 0))
 				goto confused;
 			*first_logical_block = block_in_file;
 		}
-
+		/**
+		 * 当发生以下异常情况时，采用一次读取一块的方式读该页:
+		 *     一些块在磁盘上不相邻。
+		 *     某些块在文件洞中。
+		 */
 		if (!buffer_mapped(map_bh)) {
 			fully_mapped = 0;
 			if (first_hole == blocks_per_page)
@@ -254,7 +277,9 @@ do_mpage_readpage(struct bio *bio, struct page *page, unsigned nr_pages,
 			map_buffer_to_page(page, map_bh, page_block);
 			goto confused;
 		}
-	
+		/**
+	 * 运行到此，说明页中的所有块在磁盘上是相邻的。
+	 */
 		if (first_hole != blocks_per_page)
 			goto confused;		/* hole -> non-hole */
 
@@ -274,8 +299,13 @@ do_mpage_readpage(struct bio *bio, struct page *page, unsigned nr_pages,
 		}
 		bdev = map_bh->b_bdev;
 	}
-
+	/**
+	 * 运行到此，说明页中的所有块在磁盘上是相邻的。
+	 */
 	if (first_hole != blocks_per_page) {
+		/**
+		 * 如果页是文件中的最后一页，某些块在磁盘中没有映像。将相应的块缓冲区填上0.
+		 */
 		zero_user_page(page, first_hole << blkbits,
 				PAGE_CACHE_SIZE - (first_hole << blkbits),
 				KM_USER0);
@@ -285,6 +315,9 @@ do_mpage_readpage(struct bio *bio, struct page *page, unsigned nr_pages,
 			goto out;
 		}
 	} else if (fully_mapped) {
+	/**
+	* 不是文件的最后一页，将页描述符的标志PG_mappedtodisk置位。
+	*/
 		SetPageMappedToDisk(page);
 	}
 
@@ -295,7 +328,7 @@ do_mpage_readpage(struct bio *bio, struct page *page, unsigned nr_pages,
 		bio = mpage_bio_submit(READ, bio);
 
 alloc_new:
-	if (bio == NULL) {
+	if (bio == NULL) {/* 分配一个bio，并初始化它 */
 		bio = mpage_alloc(bdev, blocks[0] << (blkbits - 9),
 			  	min_t(int, nr_pages, bio_get_nr_vecs(bdev)),
 				GFP_KERNEL);
@@ -304,6 +337,9 @@ alloc_new:
 	}
 
 	length = first_hole << blkbits;
+	/**
+	 * 向驱动提交bio请求。
+	 */
 	if (bio_add_page(bio, page, length, 0) < length) {
 		bio = mpage_bio_submit(READ, bio);
 		goto alloc_new;
@@ -315,13 +351,22 @@ alloc_new:
 		*last_block_in_bio = blocks[blocks_per_page - 1];
 out:
 	return bio;
+/**
+ * 函数运行到这里，则页中含有的块在磁盘不连续。
+ */
 
 confused:
 	if (bio)
 		bio = mpage_bio_submit(READ, bio);
 	if (!PageUptodate(page))
+		/**
+		 * 页不是最新的，则调用block_read_full_page一次读一块的方式读该页。
+		 */
 	        block_read_full_page(page, get_block);
 	else
+		/**
+		 * 如果页是最新的，则调用unlock_page来对该页解锁。
+		 */
 		unlock_page(page);
 	goto out;
 }
@@ -408,6 +453,9 @@ EXPORT_SYMBOL(mpage_readpages);
 /*
  * This isn't called much at all
  */
+ /**
+ * 对大多数文件来说，其address_space对象的readpage对象一般都是mpage_readpage的封装函数。
+ */
 int mpage_readpage(struct page *page, get_block_t get_block)
 {
 	struct bio *bio = NULL;
@@ -416,8 +464,10 @@ int mpage_readpage(struct page *page, get_block_t get_block)
 	unsigned long first_logical_block = 0;
 
 	clear_buffer_mapped(&map_bh);
+	/* 执行具体的工作 */
 	bio = do_mpage_readpage(bio, page, 1, &last_block_in_bio,
 			&map_bh, &first_logical_block, get_block);
+	/* do_mpage_readpage还有未提交的bio，在这里提交它 */
 	if (bio)
 		mpage_bio_submit(READ, bio);
 	return 0;

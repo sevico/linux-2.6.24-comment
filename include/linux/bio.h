@@ -72,28 +72,38 @@ typedef void (bio_destructor_t) (struct bio *);
  * stacking drivers)
  */
 struct bio {
+	//该bio结构所要传输的第一个（512字节）扇区：磁盘的位置
 	sector_t		bi_sector;	/* device address in 512 byte
 						   sectors */
+	//请求链表
 	struct bio		*bi_next;	/* request queue link */
+	//相关的块设备
 	struct block_device	*bi_bdev;
+	//状态和命令标志
+	//如果是写请求，最低有效位将被设置。需要使用bio_data_dir宏来确定读写标志。
 	unsigned long		bi_flags;	/* status, command, etc */
+	//读写
 	unsigned long		bi_rw;		/* bottom bits READ/WRITE,
 						 * top bits priority
 						 */
 
+	//bio的bio_vec数组中的数目
 	unsigned short		bi_vcnt;	/* how many bio_vec's */
+	//bio的bio_vec数组中段的当前索引值
 	unsigned short		bi_idx;		/* current index into bvl_vec */
 
 	/* Number of segments in this BIO after
 	 * physical address coalescing is performed.
 	 */
+	 //合并之后bio中物理段的数目
 	unsigned short		bi_phys_segments;
 
 	/* Number of segments after physical and DMA remapping
 	 * hardware coalescing is performed.
 	 */
+	 //重映射后的片段数目
 	unsigned short		bi_hw_segments;
-
+	//需要传送的字节数
 	unsigned int		bi_size;	/* residual I/O count */
 
 	/*
@@ -101,18 +111,21 @@ struct bio {
 	 * sizes of the first and last virtually mergeable segments
 	 * in this bio
 	 */
+	 //第一个可合并的段大小
 	unsigned int		bi_hw_front_size;
+	//最后一个可合并的段大小
 	unsigned int		bi_hw_back_size;
-
+	//bio_vecs数目上限
 	unsigned int		bi_max_vecs;	/* max bvl_vecs we can hold */
-
+	//bio_vec链表：内存的位置
 	struct bio_vec		*bi_io_vec;	/* the actual vec list */
-
+	//I/O完成方法
 	bio_end_io_t		*bi_end_io;
+	//使用计数
 	atomic_t		bi_cnt;		/* pin count */
-
+	 //拥有者的私有内容
 	void			*bi_private;
-
+	//释放bio时调用的析构方法（通常是bio_destructor方法）
 	bio_destructor_t	*bi_destructor;	/* destructor */
 };
 
