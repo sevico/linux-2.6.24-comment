@@ -1494,6 +1494,7 @@ static void scsi_softirq_done(struct request *rq)
  *
  * Lock status: IO request lock assumed to be held when called.
  */
+ /* SCSI磁盘策略函数，将队列泄流后，向低层驱动发送SCSI命令 */
 static void scsi_request_fn(struct request_queue *q)
 {
 	struct scsi_device *sdev = q->queuedata;
@@ -1517,6 +1518,7 @@ static void scsi_request_fn(struct request_queue *q)
 	 * the host is no longer able to accept any more requests.
 	 */
 	shost = sdev->host;
+	/* 队列没有变化 */
 	while (!blk_queue_plugged(q)) {
 		int rtn;
 		/*
@@ -1524,11 +1526,11 @@ static void scsi_request_fn(struct request_queue *q)
 		 * that the request is fully prepared even if we cannot 
 		 * accept it.
 		 */
-		req = elv_next_request(q);
+		req = elv_next_request(q);/* 获得队列中下一个请求 */
 		if (!req || !scsi_dev_queue_ready(q, sdev))
 			break;
 
-		if (unlikely(!scsi_device_online(sdev))) {
+		if (unlikely(!scsi_device_online(sdev))) {/* 如果设备已经离线，则退出 */
 			sdev_printk(KERN_ERR, sdev,
 				    "rejecting I/O to offline device\n");
 			scsi_kill_request(req, q);
@@ -1539,11 +1541,14 @@ static void scsi_request_fn(struct request_queue *q)
 		/*
 		 * Remove the request from the request list.
 		 */
+		 /* 从队列中取出请求，并由驱动处理请求，设置它的超时定时器 */
 		if (!(blk_queue_tagged(q) && !blk_queue_start_tag(q, req)))
 			blkdev_dequeue_request(req);
+		/* 递增分发给驱动的请求数 */
 		sdev->device_busy++;
 
 		spin_unlock(q->queue_lock);
+		/* 获取SCSI命令描述符，在prep_rq_fn中准备的 */
 		cmd = req->special;
 		if (unlikely(cmd == NULL)) {
 			printk(KERN_CRIT "impossible request in %s.\n"
@@ -1554,7 +1559,7 @@ static void scsi_request_fn(struct request_queue *q)
 			BUG();
 		}
 		spin_lock(shost->host_lock);
-
+		/* 检查我们是否可以发送命令到主机适配器 */
 		if (!scsi_host_queue_ready(q, shost, sdev))
 			goto not_ready;
 		if (sdev->single_lun) {
@@ -1563,6 +1568,7 @@ static void scsi_request_fn(struct request_queue *q)
 				goto not_ready;
 			scsi_target(sdev)->starget_sdev_user = sdev;
 		}
+		/* 递增分发给驱动的请求数 */
 		shost->host_busy++;
 
 		/*
@@ -1575,17 +1581,21 @@ static void scsi_request_fn(struct request_queue *q)
 		 * Finally, initialize any error handling parameters, and set up
 		 * the timers for timeouts.
 		 */
+		 /* 初始化错误处理参数，设置超时定时器 */
 		scsi_init_cmd_errh(cmd);
 
 		/*
 		 * Dispatch the command to the low-level driver.
 		 */
+		 /* 分发命令到驱动 */
 		rtn = scsi_dispatch_cmd(cmd);
 		spin_lock_irq(q->queue_lock);
+		/* 发生了错误 */
 		if(rtn) {
 			/* we're refusing the command; because of
 			 * the way locks get dropped, we need to 
 			 * check here if plugging is required */
+			 /* 检查是否需要对队列进行蓄流 */
 			if(sdev->device_busy == 0)
 				blk_plug_device(q);
 

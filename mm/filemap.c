@@ -2489,7 +2489,7 @@ ssize_t generic_file_aio_write(struct kiocb *iocb, const struct iovec *iov,
 	ret = __generic_file_aio_write_nolock(iocb, iov, nr_segs,
 			&iocb->ki_pos);
 	mutex_unlock(&inode->i_mutex);
-
+	//如果文件打开时使用了O_SYNC标记，则再调用sync_page_range将写入到磁盘高速缓存中的数据同步到磁盘（只同步文件头信息）
 	if (ret > 0 && ((file->f_flags & O_SYNC) || IS_SYNC(inode))) {
 		ssize_t err;
 

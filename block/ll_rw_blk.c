@@ -1592,7 +1592,7 @@ void __generic_unplug_device(struct request_queue *q)
 
 	if (!blk_remove_plug(q))
 		return;
-
+	// init to scsi_request_fn():
 	q->request_fn(q);
 }
 EXPORT_SYMBOL(__generic_unplug_device);
@@ -2754,6 +2754,10 @@ static inline void add_request(struct request_queue * q, struct request * req)
 	 * elevator indicated where it wants this request to be
 	 * inserted at elevator_merge time
 	 */
+	 /*
+	 由于在申请request的时候可能会阻塞，在此期间，其他进程提交的bio可能与本次bio在物理位置上连续，
+	 因此在__elv_add_request()内必须判断该request是否可合并，而不仅仅将其添加到request_queue中就完事。
+	 */
 	__elv_add_request(q, req, ELEVATOR_INSERT_SORT, 0);
 }
  
@@ -2962,6 +2966,9 @@ static void init_request_from_bio(struct request *req, struct bio *bio)
 	req->start_time = jiffies;
 	blk_rq_bio_prep(req->q, req, bio);
 }
+/**
+ * 通用块层调用此函数，获得IO调度层的服务。
+ */
 
 static int __make_request(struct request_queue *q, struct bio *bio)
 {
@@ -2978,9 +2985,13 @@ static int __make_request(struct request_queue *q, struct bio *bio)
 	 * certain limit bounced to low memory (ie for highmem, or even
 	 * ISA dma in theory)
 	 */
+	 /**
+	 * 如果有必要，建立一个回弹缓冲区。如果回弹缓冲区被建立，后续将对该缓冲区而不是对原bio结构进行操作。
+	 */
 	blk_queue_bounce(q, &bio);
 
 	barrier = bio_barrier(bio);
+	/* 屏障请求，但是队列不支持屏障，退出 */
 	if (unlikely(barrier) && (q->next_ordered == QUEUE_ORDERED_NONE)) {
 		err = -EOPNOTSUPP;
 		goto end_io;
@@ -2990,26 +3001,41 @@ static int __make_request(struct request_queue *q, struct bio *bio)
 
 	if (unlikely(barrier) || elv_queue_empty(q))
 		goto get_rq;
-
+	// 尝试进行请求合并，将bio合并至请求req中
+    // 返回值el_ret表明了该bio需要合并的方向：前向合并还是后向合并
 	el_ret = elv_merge(q, &req, bio);
 	switch (el_ret) {
+		/* 可以添加到某个bio末尾 */
 		case ELEVATOR_BACK_MERGE:
 			BUG_ON(!rq_mergeable(req));
-
+			/**
+			 * 检查是否可以将请求合并到bio的末尾。
+			 */
+			  // 检查该req是否由于硬件限制而无法再进行合并
+        		// elv_merge()只能判断是否可以进行合并
 			if (!ll_back_merge_fn(q, req, bio))
 				break;
 
 			blk_add_trace_bio(q, bio, BLK_TA_BACKMERGE);
-
+			// 执行后向合并，将bio链接到req的bio链表的尾部
 			req->biotail->bi_next = bio;
 			req->biotail = bio;
 			req->nr_sectors = req->hard_nr_sectors += nr_sectors;
 			req->ioprio = ioprio_best(req->ioprio, prio);
 			drive_stat_acct(req, 0);
+			/**
+			 * 检查是否可以与后面的请求合并。
+			 */
+			  // 后向合并完成后检查req是否与下一个req可以继续合并
+        		// 如果可以则将两个request再作一次合并，好复杂
 			if (!attempt_back_merge(q, req))
+				// 因为做了request合并，可能需要调整request在具体
+            // 调度算法中的位置，对于deadline算法来说，实现是
+            // deadline_merged_request()
+            // 它对于前向合并过的request，调整了其在RB树中的位置
 				elv_merged_request(q, req, el_ret);
 			goto out;
-
+		/* 可以插到某个请求的前面 */
 		case ELEVATOR_FRONT_MERGE:
 			BUG_ON(!rq_mergeable(req));
 
@@ -3038,6 +3064,7 @@ static int __make_request(struct request_queue *q, struct bio *bio)
 			goto out;
 
 		/* ELV_NO_MERGE: elevator says don't/can't merge. */
+		/* 未合并，转到get_rq将请求插入。 */
 		default:
 			;
 	}
@@ -3056,6 +3083,7 @@ get_rq:
 	 * Grab a free request. This is might sleep but can not fail.
 	 * Returns with the queue unlocked.
 	 */
+	 // 这里可能会陷入sleep 
 	req = get_request_wait(q, rw_flags, bio);
 
 	/*
@@ -3064,14 +3092,21 @@ get_rq:
 	 * We don't worry about that case for efficiency. It won't happen
 	 * often, and the elevators are able to handle it.
 	 */
+	 // 根据bio初始化req
 	init_request_from_bio(req, bio);
 
 	spin_lock_irq(q->queue_lock);
 	if (elv_queue_empty(q))
+		/**
+		 * 没有待处理请求，则调用blk_plug_device插入请求队列。
+		 */
 		blk_plug_device(q);
 	add_request(q, req);
 out:
 	if (sync)
+		// 如果是request_queue不应该蓄流了，此 
+		// 时开始泄流，在此之前，已经lock了该 
+		// queue if (unplug || ! queue_should_plug (q))
 		__generic_unplug_device(q);
 
 	spin_unlock_irq(q->queue_lock);
@@ -3281,7 +3316,10 @@ end_io:
 			err = -EOPNOTSUPP;
 			goto end_io;
 		}
-
+		// bio->bi_bdev指向bio请求所属块设备描述符
+        // 进而可以找到gendisk，找到其request_queue
+        // 最后调用request_queue->make_request_fn方法
+        // 这个方法被初始化为__make_request
 		ret = q->make_request_fn(q, bio);
 	} while (ret);
 }
@@ -3380,7 +3418,7 @@ void submit_bio(int rw, struct bio *bio)
 				bdevname(bio->bi_bdev,b));
 		}
 	}
-
+	// 根据bio构造request，接下来的下层主要与request打交道
 	generic_make_request(bio);
 }
 

@@ -1964,6 +1964,7 @@ int block_write_begin(struct file *file, struct address_space *mapping,
 	page = *pagep;
 	if (page == NULL) {
 		ownpage = 1;
+		//在radix树里面查找要被写的page，如果不存在则创建一个
 		page = __grab_cache_page(mapping, index);
 		if (!page) {
 			status = -ENOMEM;
@@ -1972,7 +1973,7 @@ int block_write_begin(struct file *file, struct address_space *mapping,
 		*pagep = page;
 	} else
 		BUG_ON(!PageLocked(page));
-
+//为这个page准备一组buffer_head结构，用于描述组成这个page的数据块（利用其中的信息，可以生成对应的bio结构）
 	status = __block_prepare_write(inode, page, start, end, get_block);
 	if (unlikely(status)) {
 		ClearPageUptodate(page);

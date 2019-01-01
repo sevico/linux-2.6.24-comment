@@ -57,21 +57,48 @@ typedef void (bh_end_io_t)(struct buffer_head *bh, int uptodate);
  * a page (via a page_mapping) and for wrapping bio submission
  * for backward compatibility reasons (e.g. submit_bh).
  */
+ /**
+ * 缓冲区首部结构
+ * 对应一个磁盘块的内容
+ */
 struct buffer_head {
+//缓冲区状态标志,如BH_Uptodate
 	unsigned long b_state;		/* buffer state bitmap (see above) */
+//指向缓冲区页的链表中的下一个元素的指针
 	struct buffer_head *b_this_page;/* circular list of page's buffers */
+//批向拥有该块的缓冲区页的描述符指针
 	struct page *b_page;		/* the page this bh is mapped to */
-
+//与块设备相关的块号（逻辑块号），即块在磁盘或者分区中的编号
 	sector_t b_blocknr;		/* start block number */
+	//块大小
 	size_t b_size;			/* size of mapping */
+	/**
+	 * 块在缓冲区页内的位置，这个位置的编号依赖于页是否在高端内存。
+	 * 如果在高端内存，则b_data字段存放的是块缓冲区相对于页的起始位置的偏移量。
+	 * 否则存放的是块缓冲区的线性地址。
+	 */
 	char *b_data;			/* pointer to data within the page */
-
+	/**
+	 * 指向块设备描述符的指针,通常是磁盘或者分区。
+	 */
 	struct block_device *b_bdev;
+	/**
+	 * IO完成方法
+	 */
 	bh_end_io_t *b_end_io;		/* I/O completion */
+	/**
+	 * 指向IO完成方法数据的指针
+	 * 对于JBD来说，是管理该缓冲区的journal_head
+	 */
  	void *b_private;		/* reserved for b_end_io */
+	/**
+	 * 间接块链表.
+	 * 为与某个索引结点相关的间接块的链表提供的指针
+	 */
 	struct list_head b_assoc_buffers; /* associated with another mapping */
 	struct address_space *b_assoc_map;	/* mapping this buffer is
 						   associated with */
+	//块引用计数
 	atomic_t b_count;		/* users using this buffer_head */
 };
 

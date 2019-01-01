@@ -215,10 +215,22 @@ enum rq_flag_bits {
 /*
  * try to put the fields that are referenced together in the same cacheline
  */
+ /**
+ * 块设备请求。
+ */
 struct request {
-	struct list_head queuelist;
-	struct list_head donelist;
+	/**
+		 * 用于把请求链接到请求队列中。
+	*/
 
+	struct list_head queuelist;
+	/**
+	 * 请求标志
+	 */
+	struct list_head donelist;
+	/**
+	 * 指向包含请求的请求队列描述符指针。
+	 */
 	struct request_queue *q;
 
 	unsigned int cmd_flags;
@@ -227,18 +239,43 @@ struct request {
 	/* Maintain bio traversal state for part by part I/O submission.
 	 * hard_* are block layer internals, no driver should touch them!
 	 */
-
+	/**
+	 * 开始扇区号。
+	 */
 	sector_t sector;		/* next sector to submit */
+	/**
+	 * 要传送的下一个扇区号。
+	 * 用于跟踪驱动程序还未完成的扇区。
+	 * 还未完成的第一个扇区保存在hard_sector中，等待传输的总数量保存在hard_nr_sectors，当前bio中剩余的扇区数目在hard_cur_sectors。
+	 * 这些成员只能被块设备子系统使用，驱动程序不能使用它们。
+	 */
 	sector_t hard_sector;		/* next sector to complete */
+	/**
+	 * 要传输的扇区数。
+	 */
 	unsigned long nr_sectors;	/* no. of sectors left to submit */
+	/**
+	 * 整个请求中要传送的扇区数。由通用块层更新。
+	 */
 	unsigned long hard_nr_sectors;	/* no. of sectors left to complete */
 	/* no. of sectors left to submit in the current segment */
+	/**
+	 * 当前bio的当前段中要传送的扇区数。
+	 */
 	unsigned int current_nr_sectors;
 
 	/* no. of sectors left to complete in the current segment */
+	/**
+	 * 当前bio的当前段中要传送的扇区数。由通用块层更新。
+	 */
 	unsigned int hard_cur_sectors;
-
+	/**
+	 * 请求的bio结构链表。不能直接对该成员进行访问。而是使用rq_for_each_bio访问。
+	 */
 	struct bio *bio;
+	/**
+	 * 请求链表中末尾的bio
+	 */
 	struct bio *biotail;
 
 	struct hlist_node hash;	/* merge hash */
@@ -256,14 +293,25 @@ struct request {
 	 * two pointers are available for the IO schedulers, if they need
 	 * more they have to dynamically allocate it.
 	 */
+	 /**
+	 * 指向IO调度程序私有数据的指针。
+	 */
 	void *elevator_private;
 	void *elevator_private2;
-
+	/**
+	 * 请求所用的磁盘描述符。
+	 */
 	struct gendisk *rq_disk;
+	/**
+	 * 请求的起始时间。
+	 */
 	unsigned long start_time;
 
 	/* Number of scatter-gather DMA addr+len pairs after
 	 * physical address coalescing is performed.
+	 */
+	 /**
+	 * 表示当相邻的页被合并后，在物理内存中被这个请求所占用的段的数目。
 	 */
 	unsigned short nr_phys_segments;
 
@@ -272,29 +320,64 @@ struct request {
 	 * This is the number of scatter-gather entries the driver
 	 * will actually have to deal with after DMA mapping is done.
 	 */
+	 /**
+	 * 请求的硬段数。
+	 */
 	unsigned short nr_hw_segments;
 
 	unsigned short ioprio;
 
 	void *special;
+	/**
+	 * 要传输或者要接收数据的缓冲区指针。该指针在内核虚拟地址中，如果有需要，驱动程序可以直接使用。
+	 * 它是在当前bio中调用bio_data的结果。
+	 * 如果是高端内存，则为NULL
+	 */
 	char *buffer;
+	/**
+		 * 请求的相关标记
+	*/
 
 	int tag;
+	/**
+	 * 当前传送中发生的IO失败次数的计数器。
+	 */
 	int errors;
-
+	/**
+	 * 请求的引用计数。
+	 */
 	int ref_count;
 
 	/*
 	 * when request is used as a packet command carrier
 	 */
+	 /**
+	 * cmd命令的长度
+	 */
 	unsigned int cmd_len;
+	/**
+	 * 由请求队列的prep_rq_fn方法准备好的预先内置命令所在的缓冲区。
+	 */
 	unsigned char cmd[BLK_MAX_CDB];
-
+	/**
+	 * data缓冲区的长度。
+	 */
 	unsigned int data_len;
+	/**
+	 * sense指向的缓冲区长度。
+	 */
 	unsigned int sense_len;
+	/**
+	 * 驱动程序为了跟踪所传送的数据而使用的指针。
+	 */
 	void *data;
+	/**
+	 * sense命令的缓冲区指针。
+	 */
 	void *sense;
-
+	/**
+	 * 请求的超时时间
+	 */
 	unsigned int timeout;
 	int retries;
 
@@ -358,6 +441,9 @@ struct request_queue
 
 	/*
 	 * the queue request freelist, one for reads and one for writes
+	 */
+	 /**
+	 * 用于请求队列的内存池管理。
 	 */
 	struct request_list	rq;
 
