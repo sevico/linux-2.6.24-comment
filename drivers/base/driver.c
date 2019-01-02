@@ -150,6 +150,10 @@ void put_driver(struct device_driver * drv)
  *	since most of the things we have to do deal with the bus
  *	structures.
  */
+ /**
+ * 往设备驱动程序模型中插入一个新的device_driver对象
+ * 并自动在sysfs文件系统下为其创建一个新的目录。
+ */
 int driver_register(struct device_driver * drv)
 {
 	if ((drv->bus->probe && drv->probe) ||

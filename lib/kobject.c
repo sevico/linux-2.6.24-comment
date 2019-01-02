@@ -127,6 +127,9 @@ EXPORT_SYMBOL_GPL(kobject_get_path);
  *	kobject_init - initialize object.
  *	@kobj:	object in question.
  */
+ /**
+ * 部分初始化kobject对象。
+ */
 void kobject_init(struct kobject * kobj)
 {
 	if (!kobj)
@@ -160,6 +163,12 @@ static void unlink(struct kobject * kobj)
 /**
  *	kobject_add - add an object to the hierarchy.
  *	@kobj:	object.
+ */
+//将kobj对象加入Linux设备层次。挂接该kobject对象到kset的list链中，
+//增加父目录各级kobject的引用计数，在其parent指向的目录下创建文件节点，并启动该类型内核对象的hotplug函数。
+/**
+ * 将kobject对象加入到kset中。
+ * 需要首先将kobject的kset成员指向目标kset。
  */
 
 int kobject_add(struct kobject * kobj)
@@ -219,7 +228,9 @@ int kobject_add(struct kobject * kobj)
  *	kobject_register - initialize and add an object.
  *	@kobj:	object in question.
  */
-
+/*
+kobject注册函数。通过调用kobject init()初始化kobj，再调用kobject_add()完成该内核对象的注册。
+*/
 int kobject_register(struct kobject * kobj)
 {
 	int error = -EINVAL;
@@ -241,6 +252,9 @@ int kobject_register(struct kobject * kobj)
  * This sets the name of the kobject.  If you have already added the
  * kobject to the system, you must call kobject_rename() in order to
  * change the name of the kobject.
+ */
+ /**
+ * 设置kobject对象的名称。不要直接使用字符串复制。
  */
 int kobject_set_name(struct kobject * kobj, const char * fmt, ...)
 {
@@ -409,7 +423,7 @@ out:
  *	kobject_del - unlink kobject from hierarchy.
  * 	@kobj:	object.
  */
-
+//从Linux设备层次(hierarchy)中删除kobj对象
 void kobject_del(struct kobject * kobj)
 {
 	if (!kobj)
@@ -422,7 +436,7 @@ void kobject_del(struct kobject * kobj)
  *	kobject_unregister - remove object from hierarchy and decrement refcount.
  *	@kobj:	object going away.
  */
-
+//kobject注销函数。与kobject register()相反，它首先调用kobject del从设备层次中删除该对象，再调用kobject put()减少该对象的引用计数，如果引用计数降为0，则释放kobject对象
 void kobject_unregister(struct kobject * kobj)
 {
 	if (!kobj)
@@ -436,6 +450,9 @@ void kobject_unregister(struct kobject * kobj)
 /**
  *	kobject_get - increment refcount for object.
  *	@kobj:	object.
+ */
+/**
+ * 增加kobject对象的引用计数。
  */
 
 struct kobject * kobject_get(struct kobject * kobj)

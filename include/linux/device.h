@@ -48,32 +48,58 @@ struct bus_attribute bus_attr_##_name = __ATTR(_name,_mode,_show,_store)
 extern int __must_check bus_create_file(struct bus_type *,
 					struct bus_attribute *);
 extern void bus_remove_file(struct bus_type *, struct bus_attribute *);
+/**
+ * 内核所支持的每一种总线类型都由一个bus_type描述。
+ */
 
 struct bus_type {
+	//总线类型的名称
 	const char		* name;
 	struct module		* owner;
-
+	//与该总线相关的subsystem
 	struct kset		subsys;
+	// 所有与该总线相关的驱动程序集合
 	struct kset		drivers;
+	//所有挂接在该总线上的设备集合
 	struct kset		devices;
 	struct klist		klist_devices;
 	struct klist		klist_drivers;
 
 	struct blocking_notifier_head bus_notifier;
-
+	/**
+	 * 指向对象的指针，该对象包含总线属性和用于导出此属性到sysfs文件系统的方法
+	 */
 	struct bus_attribute	* bus_attrs;
+	/**
+	 * 指向对象的指针，该对象包含设备属性和用于导出此属性到sysfs文件系统的方法
+	 */
 	struct device_attribute	* dev_attrs;
+	/**
+	 * 指向对象的指针，该对象包含驱动程序属性和用于导出此属性到sysfs文件系统的方法
+	 */
 	struct driver_attribute	* drv_attrs;
-
+		/**
+	 * 检验给定的设备驱动程序是否支持特定设备的方法.
+	 * 当一个总线上的新设备或者新驱动程序被添加时，会一次或多次调用这个函数。如果指定的驱动程序能够处理指定的设备，该函数返回非0值。
+	 */
 	int		(*match)(struct device * dev, struct device_driver * drv);
+	/**
+	 * 注册设备时调用的方法
+	 * 在为用户空间产生热插拨事件前，这个方法允许总线添加环境变量。
+	 */
 	int		(*uevent)(struct device *dev, struct kobj_uevent_env *env);
 	int		(*probe)(struct device * dev);
 	int		(*remove)(struct device * dev);
 	void		(*shutdown)(struct device * dev);
-
+		/**
+	 * 保存硬件设备的上下文状态并改变设备供电状态的方法
+	 */
 	int (*suspend)(struct device * dev, pm_message_t state);
 	int (*suspend_late)(struct device * dev, pm_message_t state);
 	int (*resume_early)(struct device * dev);
+		/**
+	 * 改变供电状态和恢复硬件设备上下文的方法
+	 */
 	int (*resume)(struct device * dev);
 
 	unsigned int drivers_autoprobe:1;
@@ -117,23 +143,48 @@ extern int bus_unregister_notifier(struct bus_type *bus,
 #define BUS_NOTIFY_BOUND_DRIVER		0x00000003 /* driver bound to device */
 #define BUS_NOTIFY_UNBIND_DRIVER	0x00000004 /* driver about to be
 						      unbound */
+/**
+ * 驱动程序描述符
+ */
 
 struct device_driver {
+	/**
+		 * 驱动程序的名称
+	*/
 	const char		* name;
+	/**
+	 * 指向总线描述符的指针。
+	 */
 	struct bus_type		* bus;
-
+	//内嵌kobject对象
 	struct kobject		kobj;
+	//该驱动所管理的设备链表头
 	struct klist		klist_devices;
+	//bus klist_drivers链表节点
 	struct klist_node	knode_bus;
-
+	/**
+	 * 驱动程序所在模块（如果有的话）
+	 */
 	struct module		* owner;
 	const char 		* mod_name;	/* used for built-in modules */
 	struct module_kobject	* mkobj;
 
 	int	(*probe)	(struct device * dev);
+	/**
+	 * 移走设备的方法（检测设备驱动程序是否可以控制该设备）
+	 */
 	int	(*remove)	(struct device * dev);
+	/**
+	 * 设备断电时调用的方法。
+	 */
 	void	(*shutdown)	(struct device * dev);
+	/**
+	 * 设备置于低功率状态时所调用的方法
+	 */
 	int	(*suspend)	(struct device * dev, pm_message_t state);
+	/**
+	 * 设备恢复正常状态时所调用的方法
+	 */
 	int	(*resume)	(struct device * dev);
 };
 
@@ -398,13 +449,30 @@ extern void *devm_kzalloc(struct device *dev, size_t size, gfp_t gfp);
 extern void devm_kfree(struct device *dev, void *p);
 
 struct device {
+	/**
+	 * 子设备链表的首部
+	 */
 	struct klist		klist_children;
 	struct klist_node	knode_parent;		/* node in sibling list */
 	struct klist_node	knode_driver;
 	struct klist_node	knode_bus;
+		/**
+	 * 指向父设备的指针
+	 * 父设备。即该设备所属的设备。
+	 * 大多数情况下，一个父设备通常是某种总线或者是宿主控制器。
+	 * 如果parent为NULL，表示该设备是顶层设备。
+	 */
 	struct device		*parent;
-
+	/**
+	 * 内嵌kobject。
+	 * 通过该字段将设备连接到结构体系中。
+	 * 作为通用准则，device->kobj->parent和device->parent->kobj是相同的。
+	 */
 	struct kobject kobj;
+	/**
+	 * 连接到总线上设备的位置
+	 * 在总线上唯一标识该设备的字符串。如PCI设备使用了标准PCI ID格式，它包括:域编号、总线编号、设备编号和功能编号。
+	 */
 	char	bus_id[BUS_ID_SIZE];	/* position on parent bus */
 	struct device_type	*type;
 	unsigned		is_registered:1;
@@ -413,27 +481,54 @@ struct device {
 	struct semaphore	sem;	/* semaphore to synchronize calls to
 					 * its driver.
 					 */
-
+	/**
+	 * 指向所连接总线的指针
+	 * 标识该设备连接在何种类型的总线上。
+	 */
 	struct bus_type	* bus;		/* type of bus device is on */
+	/**
+	 * 指向控制设备驱动程序的指针
+	 */
 	struct device_driver *driver;	/* which driver has allocated this
 					   device */
+	/**
+	 * 指向驱动程序私有数据的指针
+	 */
 	void		*driver_data;	/* data private to the driver */
+	/**
+	 * 指向遗留设备驱动程序私有数据的指针
+	 */
 	void		*platform_data;	/* Platform specific data, device
 					   core doesn't touch it */
+	/**
+	 * 电源管理信息
+	 */
 	struct dev_pm_info	power;
 
 #ifdef CONFIG_NUMA
 	int		numa_node;	/* NUMA node this device is close to */
 #endif
+	/**
+	* 指向设备的DMA屏蔽字的指针
+	*/
+
 	u64		*dma_mask;	/* dma mask (if dma'able device) */
+	/**
+		 * 设备的一致性DMA的屏蔽字
+	*/
+
 	u64		coherent_dma_mask;/* Like dma_mask, but for
 					     alloc_coherent mappings as
 					     not all hardware supports
 					     64 bit addresses for consistent
 					     allocations such descriptors. */
-
+	/**
+	 * DMA缓冲池链表的首部
+	 */
 	struct list_head	dma_pools;	/* dma pools (if dma'ble) */
-
+	/**
+	 * 指向设备所使用的一致性DMA存储器描述符的指针
+	 */
 	struct dma_coherent_mem	*dma_mem; /* internal for coherent mem
 					     override */
 	/* arch specific additions */
@@ -443,11 +538,16 @@ struct device {
 	struct list_head	devres_head;
 
 	/* class_device migration path */
+		/**
+	 * 指向兄弟设备的指针
+	 */
 	struct list_head	node;
 	struct class		*class;
 	dev_t			devt;		/* dev_t, creates the sysfs "dev" */
 	struct attribute_group	**groups;	/* optional groups */
-
+	/**
+	 * 释放回调函数
+	 */
 	void	(*release)(struct device * dev);
 };
 

@@ -109,9 +109,17 @@ struct device_list
 static struct device_list devices;
 
 /* The device structure describes a single device. */
+/**
+ * 设备驱动程序模型中的每个设备由device表示
+ */
+
 struct device
 {
 	/* The linked-list pointer. */
+	/**
+		 * 指向兄弟设备的指针
+		 */
+
 	struct device *next;
 
 	/* The this device's descriptor, as mapped into the Guest. */

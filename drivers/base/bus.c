@@ -845,13 +845,13 @@ int bus_register(struct bus_type * bus)
 	int retval;
 
 	BLOCKING_INIT_NOTIFIER_HEAD(&bus->bus_notifier);
-
+	//设置bus->subsys.kset.kobj的名字
 	retval = kobject_set_name(&bus->subsys.kobj, "%s", bus->name);
 	if (retval)
 		goto out;
 
 	bus->subsys.kobj.kset = &bus_subsys;
-
+	//向全局的bus_subsys”登记”, 把自己加入到bus_subsys的链表中去
 	retval = subsystem_register(&bus->subsys);
 	if (retval)
 		goto out;

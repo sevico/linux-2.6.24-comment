@@ -59,14 +59,37 @@ enum kobject_action {
 	KOBJ_OFFLINE,
 	KOBJ_MAX
 };
+/**
+ * 设备驱动程序模型的核心数据结构。对应于sysfs文件系统中每一个目录。
+ * 它通常被放到设备驱动程序的一个大容器中。典型的容器有总线、设备及驱动程序描述符。
+ */
 
 struct kobject {
+	//指向设备名称的指针
 	const char		* k_name;
+	/**
+	 * 容器的引用计数。
+	 */
 	struct kref		kref;
+	/**
+	 * 用于将kobject插入某个链表。
+	 */
 	struct list_head	entry;
+	/**
+	 * 指向父kobject
+	 */
 	struct kobject		* parent;
+	/**
+	 * 指向包含的kset,kset是同类型的kobject结构的一个集合体。
+	 */
 	struct kset		* kset;
+	/**
+	 * 指向kobject的类型描述符。
+	 */
 	struct kobj_type	* ktype;
+	/**
+	 * 指向与kobject对应的sysfs文件的dentry数据结构。
+	 */
 	struct sysfs_dirent	* sd;
 };
 
@@ -98,10 +121,23 @@ extern struct kobject *kobject_kset_add_dir(struct kset *kset,
 extern struct kobject *kobject_add_dir(struct kobject *, const char *);
 
 extern char * kobject_get_path(struct kobject *, gfp_t);
+/**
+ * 描述包含kobject对象的结构类型。
+ */
 
 struct kobj_type {
+//用于释放kobject占用的资源
 	void (*release)(struct kobject *);
+	/**
+	 * 实现对象属性的方法。
+	 当用户态读取属性时，show()函数被调用，该函数编码指定属性值存入buffer中返回给用户态；而store()函数用于存储用户态传入的属性值
+	 */
 	struct sysfs_ops	* sysfs_ops;
+	/**
+	 * 当创建kobject时，赋予该对象的默认属性。
+	 它以文件的形式输出到sysfs的目录当中。在kobject对应的目录下面。文件
+	名就是name。文件读写的方法对应于kobj type中的sysfs ops。
+	 */
 	struct attribute	** default_attrs;
 };
 
@@ -138,9 +174,12 @@ struct kset_uevent_ops {
  * desired.
  */
 struct kset {
+	//指向该kset对象类型描述符的指针
 	struct kobj_type	*ktype;
+	//用于连接该kset中所有kobject的链表头
 	struct list_head	list;
 	spinlock_t		list_lock;
+	//嵌入的kobject
 	struct kobject		kobj;
 	struct kset_uevent_ops	*uevent_ops;
 };

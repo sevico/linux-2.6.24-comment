@@ -129,6 +129,9 @@ void unregister_blkdev(unsigned int major, const char *name)
 }
 
 EXPORT_SYMBOL(unregister_blkdev);
+/**
+ * kobj_map建立设备驱动程序和设备的主设备号（及相关范围内的次设备号）之间的联接。
+ */
 
 static struct kobj_map *bdev_map;
 

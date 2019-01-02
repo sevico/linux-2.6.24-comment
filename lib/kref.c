@@ -49,6 +49,7 @@ void kref_get(struct kref *kref)
  * memory.  Only use the return value if you want to see if the kref is now
  * gone, not present.
  */
+ // 将kobj对象的引用计数减1，如果引用计数降为0，则调用kobject release()释放该kobject对象
 int kref_put(struct kref *kref, void (*release)(struct kref *kref))
 {
 	WARN_ON(release == NULL);

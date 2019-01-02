@@ -1126,9 +1126,18 @@ static int do_open(struct block_device *bdev, struct file *file, int for_part)
 	struct gendisk *disk;
 	int ret = -ENXIO;
 	int part;
-
+	/**
+	 * 在调用do_open前，blkdev_open会调用bd_acquire，在bd_acquire中
+	 * inode->imapping字段会被设置为bdev索引结点中相应字段的值。该字段指向地址空间对象(address_space)
+	 * 现在将它赋给f_mapping
+	 */
 	file->f_mapping = bdev->bd_inode->i_mapping;
 	lock_kernel();
+	/**
+	 * 获取与块设备相关的gendisk描述符地址。
+	 * 如果打开的块设备是一个分区，则返回的索引值存放在part中，否则part为0
+	 * get_gendisk函数简单的在kobject映射域bdev_map上调用kobj_lookup来传递设备的主设备号和次设备号。
+	 */
 	disk = get_gendisk(bdev->bd_dev, &part);
 	if (!disk) {
 		unlock_kernel();
@@ -1138,12 +1147,23 @@ static int do_open(struct block_device *bdev, struct file *file, int for_part)
 	owner = disk->fops->owner;
 
 	mutex_lock_nested(&bdev->bd_mutex, for_part);
-	if (!bdev->bd_openers) {
+	/**
+	 * bdev->bd_openers!=0表示设备已经打开。
+	 */
+	if (!bdev->bd_openers) {/* 还没有打开 */
+		/**
+		 * 第一次访问，以前没有打开过
+		 * 就初始化它的bd_disk
+		 */
 		bdev->bd_disk = disk;
 		bdev->bd_contains = bdev;
-		if (!part) {
+		if (!part) {/* 是一个整盘，而不是分区 */
 			struct backing_dev_info *bdi;
 			if (disk->fops->open) {
+				/**
+				 * 该盘定义了打开方法。就执行它
+				 * 该方法是由块设备驱动程序定义的定制函数。
+				 */
 				ret = disk->fops->open(bdev->bd_inode, file);
 				if (ret)
 					goto out_first;

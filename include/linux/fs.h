@@ -517,33 +517,92 @@ struct address_space {
 	 * must be enforced here for CRIS, to let the least signficant bit
 	 * of struct page's "mapping" pointer be used for PAGE_MAPPING_ANON.
 	 */
+/**
+ * 一个块设备驱动程序可以处理几个块设备.
+ * 例如：一个IDE驱动程序可以处理几个IDE磁盘。其中的每个都是一个单独的块设备。
+ * 并且，每个磁盘都可以被分区。每个分区又可以被看成是一个逻辑设备。
+ * 每个块设备都都是由block_device定义的。
+ */
 
 struct block_device {
+	/**
+	 * 块设备的主设备号和次设备号
+	 */
 	dev_t			bd_dev;  /* not a kdev_t - it's a search key */
+		/**
+	 * 指向bdev文件系统中块设备对应的文件索引结点的指针。
+	 */
 	struct inode *		bd_inode;	/* will die */
+	/**
+	 * 计数器，统计设备已经被打开了多少次
+	 */
 	int			bd_openers;
+	/**
+	 * 保护块设备打开和关闭的信号量。
+	 */
 	struct mutex		bd_mutex;	/* open/close mutex */
+	/**
+	 * 禁止在块设备上进行新安装(mount)的信号量。
+	 */
 	struct semaphore	bd_mount_sem;
+	/**
+	 * 已打开的块设备文件的索引结点链表的首部。
+	 */
 	struct list_head	bd_inodes;
+	/**
+	 * 块设备描述符的当前所有者
+	 */
 	void *			bd_holder;
+	/**
+	 * 计数器，统计对bd_holder字段多次设置的次数。
+	 */
 	int			bd_holders;
 #ifdef CONFIG_SYSFS
 	struct list_head	bd_holder_list;
 #endif
+	/**
+		 * 如果设备是一个分区。则指向整个磁盘的块设备描述符。
+		 * 否则，指向该块设备描述符
+	*/
+
 	struct block_device *	bd_contains;
+	/**
+		 * 块大小 
+	*/
 	unsigned		bd_block_size;
+	/**
+	 * 指向分区描述符的指针（如果块设备不是分区，则为NULL）
+	 */
 	struct hd_struct *	bd_part;
 	/* number of times partitions within this device have been opened. */
+	/**
+	 * 计数器，统计包含在块设备中的分区已经被打开了多少次
+	 */
 	unsigned		bd_part_count;
+	/**
+	 * 当需要读块设备的分区表时设置的标志
+	 */
 	int			bd_invalidated;
+	/**
+	 * 指向块设备中基本磁盘的gendisk结构的指针
+	 */
 	struct gendisk *	bd_disk;
+	/**
+	 * 用于块设备描述符链表的指针
+	 */
 	struct list_head	bd_list;
+	/**
+	 * 指向块设备的专门描述符（通常为NULL）
+	 */
 	struct backing_dev_info *bd_inode_backing_dev_info;
 	/*
 	 * Private data.  You must have bd_claim'ed the block_device
 	 * to use this.  NOTE:  bd_claim allows an owner to claim
 	 * the same device multiple times, the owner must take special
 	 * care to not mess up bd_private for that case.
+	 */
+	 /**
+	 * 块设备持有者的私有数据指针
 	 */
 	unsigned long		bd_private;
 };
