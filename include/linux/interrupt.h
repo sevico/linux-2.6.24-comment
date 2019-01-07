@@ -58,12 +58,19 @@
 typedef irqreturn_t (*irq_handler_t)(int, void *);
 
 struct irqaction {
+	//特定设备对应的中断服务程序
 	irq_handler_t handler;
+	//中断处理标志
 	unsigned long flags;
 	cpumask_t mask;
+	//设备名
 	const char *name;
+	//设备的私有字段，通常用于标识设备，或指向设备驱动程序的数据
+	//驱动程序申请IRQ时将其作为参数传递给中断处理程序
 	void *dev_id;
+	//指向该IRQ线上的下一个irqaction对象
 	struct irqaction *next;
+	//IRQ线
 	int irq;
 	struct proc_dir_entry *dir;
 };

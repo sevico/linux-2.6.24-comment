@@ -70,6 +70,7 @@ fastcall unsigned int do_IRQ(struct pt_regs *regs)
 {	
 	struct pt_regs *old_regs;
 	/* high bit used in ret_from_ code */
+	//获取中断向量号
 	int irq = ~regs->orig_eax;
 	struct irq_desc *desc = irq_desc + irq;
 #ifdef CONFIG_4KSTACKS
@@ -84,6 +85,7 @@ fastcall unsigned int do_IRQ(struct pt_regs *regs)
 	}
 
 	old_regs = set_irq_regs(regs);
+	//进入中断上下文
 	irq_enter();
 #ifdef CONFIG_DEBUG_STACKOVERFLOW
 	/* Debugging check for stack overflow: is there less than 1KB free? */
@@ -138,8 +140,9 @@ fastcall unsigned int do_IRQ(struct pt_regs *regs)
 		);
 	} else
 #endif
+//调用该IRQ的公共处理程序对中断进行处理
 		desc->handle_irq(irq, desc);
-
+//推出中断上下文
 	irq_exit();
 	set_irq_regs(old_regs);
 	return 1;

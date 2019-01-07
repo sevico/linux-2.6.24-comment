@@ -392,6 +392,7 @@ void __init native_init_IRQ(void)
 	int i;
 
 	/* all the set up before the call gates are initialised */
+	//初始化中断控制器以及初始化每个IRQ线的中断请求队列
 	pre_intr_init_hook();
 
 	/*
@@ -404,6 +405,7 @@ void __init native_init_IRQ(void)
 		if (i >= NR_IRQS)
 			break;
 		/* SYSCALL_VECTOR was reserved in trap_init. */
+		//跳过用于系统调用的中断向量，因为在trap_init函数中已经初始化
 		if (!test_bit(vector, used_vectors))
 			set_intr_gate(vector, interrupt[i]);
 	}
@@ -411,6 +413,7 @@ void __init native_init_IRQ(void)
 	/* setup after call gates are initialised (usually add in
 	 * the architecture specific gates)
 	 */
+	 //主要针对SMP系统进行一些额外的初始化
 	intr_init_hook();
 
 	/*
@@ -419,6 +422,9 @@ void __init native_init_IRQ(void)
 	 */
 	if (boot_cpu_data.hard_math && !cpu_has_fpu)
 		setup_irq(FPU_IRQ, &fpu_irq);
-
+	/*
+如果配置内核时，选上了CONFIG_4KSTACKS选项，则为每个CPU分配一个4KB大小的栈，
+专门用于中断和异常处理。否则，中断与异常处理时与被中断进程共用一个8KB大小的内核栈
+*/
 	irq_ctx_init(smp_processor_id());
 }

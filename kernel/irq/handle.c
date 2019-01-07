@@ -132,9 +132,18 @@ irqreturn_t handle_IRQ_event(unsigned int irq, struct irqaction *action)
 	unsigned int status = 0;
 
 	handle_dynamic_tick(action);
-
+	/*
+		因为CPU在通过中断门时自动将中断关闭，如果这里希望将它们打开，即希望
+		中断服务程序能够在中断打开的情况下执行，就需要在使用request_irq函数注册中断
+		处理程序时，不要设置IRQF_DISABLED标志
+	*/
 	if (!(action->flags & IRQF_DISABLED))
 		local_irq_enable_in_hardirq();
+	/*
+	遍历该IRQ线的中断请求队列，并调用其中的所有中断服务程序。通常每个具体的中断服务程序中
+	都会一开始检查各自的中断源，判断是否有来自该设备的中断请求，如果没有则马上退出。
+	而且每个IRQ线的中断请求队列一般也不会很大，所以这个过程不会耗费很长的时间
+	*/
 
 	do {
 		ret = action->handler(irq, action->dev_id);
@@ -143,9 +152,10 @@ irqreturn_t handle_IRQ_event(unsigned int irq, struct irqaction *action)
 		retval |= ret;
 		action = action->next;
 	} while (action);
-
+//如果注册IRQ时设置了IRQF_SAMPLE_RANDOM标志，则需要调用add_interrupt_randomness,以中断间隔时间为随机数产生熵
 	if (status & IRQF_SAMPLE_RANDOM)
 		add_interrupt_randomness(irq);
+	//最后关闭中断，函数返回
 	local_irq_disable();
 
 	return retval;

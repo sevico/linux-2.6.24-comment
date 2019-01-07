@@ -96,22 +96,30 @@ struct msi_desc;
  * @typename:		obsoleted by name, kept as migration helper
  */
 struct irq_chip {
+//中断控制器名称
 	const char	*name;
+//启用与关闭指定的IRQ线
 	unsigned int	(*startup)(unsigned int irq);
 	void		(*shutdown)(unsigned int irq);
+	//激活与禁止指定的IRQ线
 	void		(*enable)(unsigned int irq);
 	void		(*disable)(unsigned int irq);
-
+	//应答指定的IRQ线
 	void		(*ack)(unsigned int irq);
+	//屏蔽指定的IRQ线，阻塞它向CPU发送
 	void		(*mask)(unsigned int irq);
 	void		(*mask_ack)(unsigned int irq);
+	//解除屏蔽指定的IRQ线
 	void		(*unmask)(unsigned int irq);
 	void		(*eoi)(unsigned int irq);
-
+	//通知中断控制器已处理完毕
 	void		(*end)(unsigned int irq);
+	//绑定指定的irq到特定的CPU上
 	void		(*set_affinity)(unsigned int irq, cpumask_t dest);
+	//重新产生并发送指定的IRQ
 	int		(*retrigger)(unsigned int irq);
 	int		(*set_type)(unsigned int irq, unsigned int flow_type);
+	//激活或禁止wake-on-interrupt行为
 	int		(*set_wake)(unsigned int irq, unsigned int on);
 
 	/* Currently used only by UML, might disappear one day.*/
@@ -150,19 +158,28 @@ struct irq_chip {
  * @name:		flow handler name for /proc/interrupts output
  */
 struct irq_desc {
+//该irq线的公共服务程序
 	irq_flow_handler_t	handle_irq;
+//该irq线隶属的中断控制器
 	struct irq_chip		*chip;
 	struct msi_desc		*msi_desc;
 	void			*handler_data;
 	void			*chip_data;
+	//该irq线所连接的中断源产生中断时，需要调用的服务程序
+	//指向该irq线中断请求队列的头
 	struct irqaction	*action;	/* IRQ action list */
+	//该irq线的状态标志
 	unsigned int		status;		/* IRQ status */
-
+	//为0，表示该IRQ线被激活，如果为一个正数，表示该IRQ线被禁止的次数，通常称为禁止深度
 	unsigned int		depth;		/* nested irq disables */
 	unsigned int		wake_depth;	/* nested wake enables */
+	//该IRQ线上发生中断的总次数
 	unsigned int		irq_count;	/* For detecting broken IRQs */
+	//该IRQ线上未处理中断发生的总次数
 	unsigned int		irqs_unhandled;
+	//上一次未处理中断发生时的jiffies值
 	unsigned long		last_unhandled;	/* Aging timer for unhandled count */
+	//irq_desc对象是全局的，需要锁进行保护
 	spinlock_t		lock;
 #ifdef CONFIG_SMP
 	cpumask_t		affinity;

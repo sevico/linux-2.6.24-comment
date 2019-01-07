@@ -514,6 +514,20 @@ EXPORT_SYMBOL(free_irq);
  *	IRQF_SAMPLE_RANDOM	The interrupt can be used for entropy
  *
  */
+ /*
+ 	@irq:要申请的IRQ号。很多设备使用的IRQ号通常是预先分配好的，比如系统时钟和键盘。
+ 	@handler:要注册的中断服务程序
+ 	@irqflags:中断的类型标志。它可以取下面三个值之一，或者它们的"|":
+ 		IRQF:SHARED:表示可以与其他设备共享同一条中断线
+ 		IRQF_DISABLED:在本地上，中断处理程序在禁止所有中断的情况下执行，
+		可以不受其他中断干扰。如果没有设置这个标志，则只有该中断处理程序对应的
+		那条中断线被屏蔽，而其他中断都是激活的。
+		IRQF_SAMPLE_RANDOM:表明这个中断能够用来产生内核熵。
+	@devname：中断源的名称，可以在/proc/interrupts文件中看到。
+	@devid：传递给中断服务程序handler的参数，必须全局唯一，通常都是用来指向设备
+	的私有数据结构，以便标识具体是哪个设各产生了中断。如果不与其他设备共享中断线，
+	则可以指定为NULL。
+ */
 int request_irq(unsigned int irq, irq_handler_t handler,
 		unsigned long irqflags, const char *devname, void *dev_id)
 {
