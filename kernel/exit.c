@@ -830,6 +830,7 @@ static void exit_notify(struct task_struct *tsk)
 	}
 
 	state = EXIT_ZOMBIE;
+	//-1说明退出时必须向父进程发送信号
 	if (tsk->exit_signal == -1 && likely(!tsk->ptrace))
 		state = EXIT_DEAD;
 	tsk->exit_state = state;

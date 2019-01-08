@@ -275,14 +275,17 @@ struct rt_rq {
  * (such as the load balancing or the thread migration code), lock
  * acquire operations must be ordered by ascending &runqueue.
  */
+  /* CPU运行队列，每个CPU包含一个struct rq */
 struct rq {
 	/* runqueue lock: */
+//保护运行队列的自旋锁。在一个给定时间只能有一个进程有权修改运行队列
 	spinlock_t lock;
 
 	/*
 	 * nr_running and cpu_load should be in the same cacheline because
 	 * remote CPUs use both these fields when doing load calculation.
 	 */
+	 //该运行队列可运行进程的数目
 	unsigned long nr_running;
 	#define CPU_LOAD_IDX_MAX 5
 	unsigned long cpu_load[CPU_LOAD_IDX_MAX];
@@ -293,6 +296,7 @@ struct rq {
 	/* capture load from *all* tasks on this cpu: */
 	struct load_weight load;
 	unsigned long nr_load_updates;
+	//自该运行队列创建以来，其中的进程进行上下文切换的总次数，只有proc文件系统使用这个字段
 	u64 nr_switches;
 
 	struct cfs_rq cfs;
@@ -309,9 +313,11 @@ struct rq {
 	 * it on another CPU. Always updated under the runqueue lock:
 	 */
 	unsigned long nr_uninterruptible;
-
+	//curr指向当前进程，idle指向当前cpu上的idle进程
 	struct task_struct *curr, *idle;
+	//指明下次负载均衡的时间，避免负载均衡过于频繁
 	unsigned long next_balance;
+	//指向前一个进程内存描述符指针
 	struct mm_struct *prev_mm;
 
 	u64 clock, prev_clock_raw;
@@ -321,24 +327,33 @@ struct rq {
 	u64 idle_clock;
 	unsigned int clock_deep_idle_events;
 	u64 tick_timestamp;
-
+//运行队列中正在等待I/O操作的进程数目
 	atomic_t nr_iowait;
 
 #ifdef CONFIG_SMP
+//指向当前CPU所在的基本调度域
 	struct sched_domain *sd;
 
 	/* For active balancing */
+	//如果要把一些进程迁移到其他的运行队列，就设置这个标志
 	int active_balance;
 	int push_cpu;
 	/* cpu of this runqueue: */
 	int cpu;
-
+	/*
+	迁移内核线程的进程描述符。迁移线程的主体是函数migration_thread()，该内
+	核线程在系统启动时自动加载（每个CPU一个），检查migration_queue中是否有
+	请求等待处理，如果没有，就进入TASK_INTERRUPTIBLE状态休眠，直至被唤醒然
+	后再检查
+	*/
 	struct task_struct *migration_thread;
+	//需要被迁移到其他CPU的进程列表
 	struct list_head migration_queue;
 #endif
 
 #ifdef CONFIG_SCHEDSTATS
 	/* latency stats */
+	//收集调度器的统计信息，并提供给/proc/schedstat使用
 	struct sched_info rq_sched_info;
 
 	/* sys_sched_yield() stats */
@@ -970,7 +985,11 @@ static inline int __normal_prio(struct task_struct *p)
 static inline int normal_prio(struct task_struct *p)
 {
 	int prio;
-
+	/*
+	*has_rt_policy()是检查进程是不是实时进程的另一种方法。如果是实时进程，
+	*就按照99-rt_priority的公式计算动态优先级，rt_priority值越大，实时进
+	*程的优先级越高。
+	*/
 	if (task_has_rt_policy(p))
 		prio = MAX_RT_PRIO-1 - p->rt_priority;
 	else
@@ -987,14 +1006,23 @@ static inline int normal_prio(struct task_struct *p)
  */
 static int effective_prio(struct task_struct *p)
 {
+//计算常规的动态优先级，既没有受优先级继承影响的优先级
 	p->normal_prio = normal_prio(p);
 	/*
 	 * If we are RT tasks or we were boosted to RT priority,
 	 * keep the priority unchanged. Otherwise, update priority
 	 * to the normal priority:
 	 */
+	 /*
+	 rt_prio检查任务的优先级是不是小于100，如果不小于，就表明这个进程不是实
+	时进程，直接返回刚才计算好的常规动态优先级，也即，如果不是实时进程就不能利用
+	优先级继承协议
+	 */
 	if (!rt_prio(p->prio))
 		return p->normal_prio;
+	
+	/*如果是实时进程，就返回其原来的动态优先级，不作任何修改。实时进程的动态优先
+	级由sched_setscheduler()调整，或者通过优先级继承协议调整*/
 	return p->prio;
 }
 

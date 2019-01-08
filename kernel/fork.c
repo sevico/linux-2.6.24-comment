@@ -1021,7 +1021,11 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 		    p->user != current->nsproxy->user_ns->root_user)
 			goto bad_fork_free;
 	}
-
+/*
+	进程描述符中包含有一个user_struct结构指针user，一个用户的多个进程可以通过
+	该指针共享该用户的资源信息，因为创建了新的进程，所以必须更新该用户的
+	user_struct结构，累加相应的计数器
+*/
 	atomic_inc(&p->user->__count);
 	atomic_inc(&p->user->processes);
 	get_group_info(p->group_info);
@@ -1400,6 +1404,12 @@ static int fork_traceflag(unsigned clone_flags)
  * It copies the process, and if successful kick-starts
  * it and waits for it to finish using the VM if required.
  */
+ /*
+ 	参数clone_flags由两部分组成，最低的一个字节为信号掩码，用于指定子进程退出时向父进
+ 	程发出的信号。通过sys_fork()和sys_vfork()的定义可以看到，在fork和vfork中这个
+ 	信号就是SIGCHLD，而clone则可以由用户自己定义。而第二部分，即剩余的字节是表示资源
+ 	和特性的标志位。对于fork第二部分为全0,对于vfork则为CLONE_VFORK|CLONE_VM,至于clone则是由用户自己来定义
+ */
 long do_fork(unsigned long clone_flags,
 	      unsigned long stack_start,
 	      struct pt_regs *regs,
@@ -1407,6 +1417,7 @@ long do_fork(unsigned long clone_flags,
 	      int __user *parent_tidptr,
 	      int __user *child_tidptr)
 {
+//定义一个进程描述符
 	struct task_struct *p;
 	int trace = 0;
 	long nr;
@@ -1416,12 +1427,19 @@ long do_fork(unsigned long clone_flags,
 		if (trace)
 			clone_flags |= CLONE_PTRACE;
 	}
-
+//调用copy_process完成具体的复制工作
 	p = copy_process(clone_flags, stack_start, regs, stack_size,
 			child_tidptr, NULL);
 	/*
 	 * Do this prior waking up the new thread - the thread pointer
 	 * might get invalid after that point, if the thread exits quickly.
+	 */
+	 /*
+	 调用COPY_Process()后，如果没有指定CLONESTOPPED,就会调用
+	 wake_up_new_task()将新进程添加到可运行队列之中：如果父了进程运行在同一
+	 CPU之上，且没有设置CLONE_VM标志（意味着将会用到写时复制），则把了进程添
+	 加到父进程的前面，确保子进程先于父进程运行，这样，如果子进程被创建后立即调用
+	 exec()，将会避免由写时复制引起的一系列不必要的页面复制。
 	 */
 	if (!IS_ERR(p)) {
 		struct completion vfork;
@@ -1436,7 +1454,7 @@ long do_fork(unsigned long clone_flags,
 
 		if (clone_flags & CLONE_PARENT_SETTID)
 			put_user(nr, parent_tidptr);
-
+		//如果设置了CLONE_VFORK标志，则把父进程添加到等待队列并挂起
 		if (clone_flags & CLONE_VFORK) {
 			p->vfork_done = &vfork;
 			init_completion(&vfork);

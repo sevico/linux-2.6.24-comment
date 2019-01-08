@@ -774,6 +774,7 @@ struct task_struct fastcall * __switch_to(struct task_struct *prev_p, struct tas
 
 asmlinkage int sys_fork(struct pt_regs regs)
 {
+	//除SIGCHILD外不适用其他任何标志，表示对所有资源都要复制
 	return do_fork(SIGCHLD, regs.esp, &regs, 0, NULL, NULL);
 }
 
@@ -782,7 +783,7 @@ asmlinkage int sys_clone(struct pt_regs regs)
 	unsigned long clone_flags;
 	unsigned long newsp;
 	int __user *parent_tidptr, *child_tidptr;
-
+	//把regs分解成可以传递给do_fork的参数
 	clone_flags = regs.ebx;
 	newsp = regs.ecx;
 	parent_tidptr = (int __user *)regs.edx;
@@ -804,6 +805,7 @@ asmlinkage int sys_clone(struct pt_regs regs)
  */
 asmlinkage int sys_vfork(struct pt_regs regs)
 {
+//使用CLONE_VFORK和CLONE_VM表示父进程阻塞及共享地址空间
 	return do_fork(CLONE_VFORK | CLONE_VM | SIGCHLD, regs.esp, &regs, 0, NULL, NULL);
 }
 

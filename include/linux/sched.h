@@ -823,29 +823,36 @@ struct sched_domain;
 
 struct sched_class {
 	const struct sched_class *next;
-
+	//将进程插入运行队列，对CFS来说，将进程放入红黑树中
 	void (*enqueue_task) (struct rq *rq, struct task_struct *p, int wakeup);
+	//从运行队列中删除进程，对CFS来说，将进程从红黑树中删除
 	void (*dequeue_task) (struct rq *rq, struct task_struct *p, int sleep);
+	//主动放弃CPU
 	void (*yield_task) (struct rq *rq);
-
+	//检查当前进程是否可被新进程抢占
 	void (*check_preempt_curr) (struct rq *rq, struct task_struct *p);
-
+	//选择下一个可被调度进程
 	struct task_struct * (*pick_next_task) (struct rq *rq);
+	//将进程放回运行队列
 	void (*put_prev_task) (struct rq *rq, struct task_struct *p);
 
 #ifdef CONFIG_SMP
+//负载均衡
 	unsigned long (*load_balance) (struct rq *this_rq, int this_cpu,
 			struct rq *busiest, unsigned long max_load_move,
 			struct sched_domain *sd, enum cpu_idle_type idle,
 			int *all_pinned, int *this_best_prio);
-
+//尽力从最忙的CPU上移动一个进程到指定CPU上
 	int (*move_one_task) (struct rq *this_rq, int this_cpu,
 			      struct rq *busiest, struct sched_domain *sd,
 			      enum cpu_idle_type idle);
 #endif
-
+//当进程改变它的调度类或进程组时被调用
 	void (*set_curr_task) (struct rq *rq);
+//通常在定时器中断被调用，有可能引起进程切换
 	void (*task_tick) (struct rq *rq, struct task_struct *p);
+//核心的调度程序代码通过task_new为调度模块提供了管理新任务启动的机会。
+//cfs调度模块利用它进行调度
 	void (*task_new) (struct rq *rq, struct task_struct *p);
 };
 
@@ -864,13 +871,19 @@ struct load_weight {
  *     6 se->load.weight
  */
 struct sched_entity {
+//调度实体权重
 	struct load_weight	load;		/* for load-balancing */
+//调度实体在红黑树中的节点信息
 	struct rb_node		run_node;
+//调度实体是否在运行队列上
 	unsigned int		on_rq;
-
+//调度实体的开始运行时间
 	u64			exec_start;
+//调度实体的总运行时间
 	u64			sum_exec_runtime;
+//调度实体的虚拟运行时间
 	u64			vruntime;
+//进程在切换CPU时的sum_exec_runtime值
 	u64			prev_sum_exec_runtime;
 
 #ifdef CONFIG_SCHEDSTATS
@@ -906,6 +919,7 @@ struct sched_entity {
 #endif
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
+//父调度实体
 	struct sched_entity	*parent;
 	/* rq on which this entity is (to be) queued: */
 	struct cfs_rq		*cfs_rq;
