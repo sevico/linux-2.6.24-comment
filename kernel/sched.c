@@ -162,11 +162,14 @@ struct cfs_rq;
 /* task group related information */
 struct task_group {
 #ifdef CONFIG_FAIR_CGROUP_SCHED
+//用于从CSS到task_group的转换
 	struct cgroup_subsys_state css;
 #endif
 	/* schedulable entities of this group on each cpu */
+//该进程组在每个CPU上对应一个调度实体
 	struct sched_entity **se;
 	/* runqueue "owned" by this group on each cpu */
+	//该进程组在每个CPU上都拥有一个CFS运行队列
 	struct cfs_rq **cfs_rq;
 	unsigned long shares;
 	/* spinlock to serialize modification to shares */
@@ -1961,7 +1964,13 @@ context_switch(struct rq *rq, struct task_struct *prev,
 	struct mm_struct *mm, *oldmm;
 
 	prepare_task_switch(rq, prev, next);
+	//获取即将被调度运行的进程所拥有的内存描述结构指针
 	mm = next->mm;
+	/*
+	*保存被替换进程当前使用的内存描述结构指针。进程描述符的active_mm指向
+	*进程使用的地址空间描述符，而mm指向进程拥有的地址空间描述符，通常二者是
+	相同的。但是内核线程没有自己的地址空间，mm一直为NULL。
+	*/
 	oldmm = prev->active_mm;
 	/*
 	 * For paravirt, this is coupled with an exit in switch_to to
@@ -1969,12 +1978,15 @@ context_switch(struct rq *rq, struct task_struct *prev,
 	 * one hypercall.
 	 */
 	arch_enter_lazy_cpu_mode();
-
+	//如果被调度运行的进程所拥有的内存描述结构指针空，说明它是内核线程
 	if (unlikely(!mm)) {
+		//被替换进程的active_mm作为内核线程使用的内存描述结构指针
 		next->active_mm = oldmm;
+		//将内存描述结构的使用技术+1
 		atomic_inc(&oldmm->mm_count);
 		enter_lazy_tlb(oldmm, next);
 	} else
+		//如果将要运行的进程不是内核线程，则切换到它的页表
 		switch_mm(oldmm, mm, next);
 
 	if (unlikely(!prev->mm)) {
@@ -1992,6 +2004,7 @@ context_switch(struct rq *rq, struct task_struct *prev,
 #endif
 
 	/* Here we just switch the register state and the stack. */
+	//切换处理器状态到新进程
 	switch_to(prev, next, prev);
 
 	barrier();
