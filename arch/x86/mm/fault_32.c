@@ -310,7 +310,7 @@ fastcall void __kprobes do_page_fault(struct pt_regs *regs,
 
 	/* get the address */
         address = read_cr2();
-
+//得到当前进程的描述符和内存地址描述
 	tsk = current;
 
 	si_code = SEGV_MAPERR;
@@ -378,7 +378,7 @@ fastcall void __kprobes do_page_fault(struct pt_regs *regs,
 			goto bad_area_nosemaphore;
 		down_read(&mm->mmap_sem);
 	}
-
+//找到这个地址所在的内存区域
 	vma = find_vma(mm, address);
 	if (!vma)
 		goto bad_area;
@@ -426,6 +426,7 @@ good_area:
 	 * make sure we exit gracefully rather than endlessly redo
 	 * the fault.
 	 */
+	 //真正处理出错的内存页，创建页表
 	fault = handle_mm_fault(mm, vma, address, write);
 	if (unlikely(fault & VM_FAULT_ERROR)) {
 		if (fault & VM_FAULT_OOM)

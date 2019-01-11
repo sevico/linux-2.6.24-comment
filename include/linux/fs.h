@@ -497,7 +497,7 @@ struct backing_dev_info;
 struct address_space {
 	struct inode		*host;		/* owner: inode, block_device */
 	struct radix_tree_root	page_tree;	/* radix tree of all pages */
-	rwlock_t		tree_lock;	/* and rwlock protecting it */
+	rwlock_t		tree_lock;	/* and rwlock protecting it(page_tree) */
 	unsigned int		i_mmap_writable;/* count VM_SHARED mappings */
 	struct prio_tree_root	i_mmap;		/* tree of private and shared mappings */
 	struct list_head	i_mmap_nonlinear;/*list VM_NONLINEAR mappings */
@@ -510,7 +510,7 @@ struct address_space {
 	struct backing_dev_info *backing_dev_info; /* device readahead, etc */
 	spinlock_t		private_lock;	/* for use by the address_space */
 	struct list_head	private_list;	/* ditto */
-	struct address_space	*assoc_mapping;	/* ditto */
+	struct address_space	*assoc_mapping;	/* ditto 关联缓存 */
 } __attribute__((aligned(sizeof(long))));
 	/*
 	 * On most architectures that alignment is already the case; but
@@ -648,7 +648,19 @@ static inline int mapping_writably_mapped(struct address_space *mapping)
 #endif
 
 struct inode {
-	/* 用于散列链表的指针 */
+	/* 用于散列链表的指针
+	共有4个管理inode的链表。
+(1)inode_unused，用于将目前还没使用的inode链接起来。
+(2)inode_in_use，用于将目前正在使用的inode链接起来。Inode_unused
+与inode_in_use都是定义在include/linux/write_back.h文件中的
+全局变量。
+(3）超级块对象的s_dirty字段，用于将所有的脏inode链接在一起。
+(4）所有正在使用中的inode都可以从inode_in_use中找到，但是因为系统中
+的inode有许多，所以查找的效率并不高。因此每个使用中的inode都会计算
+出其hash值，这些hash值有可能会重复，i_hash则将具有同样hash值的
+
+多个inode链接起来。
+	*/
 	struct hlist_node	i_hash;
 	/* 用于描述索引节点当前状态的链表的指针
 	通过此字段将队列链入不同状态的链表中
@@ -660,7 +672,7 @@ struct inode {
 	struct list_head	i_sb_list;
 	/* 引用索引节点的目录项对象链表的头 */
 	struct list_head	i_dentry;
-	/* 索引节点号 */
+	/* 索引节点号 由超级块对象和这个序号可以找到inode*/
 	unsigned long		i_ino;
 	/* 引用计数器 */
 	atomic_t		i_count;
@@ -672,7 +684,7 @@ struct inode {
 	gid_t			i_gid;
 	/* 实设备标识符 */
 	dev_t			i_rdev;
-	/* 版本号（每次使用后自动递增） */
+	/* 版本号（每次修改后自动递增） */
 	unsigned long		i_version;
 	/* 文件的字节数 */
 	loff_t			i_size;
@@ -685,7 +697,7 @@ struct inode {
 	struct timespec		i_mtime;
 	/* 上次修改索引节点的时间 */
 	struct timespec		i_ctime;
-	/* 块的位数 */
+	/* 块的大小，以bit为单位 */
 	unsigned int		i_blkbits;
 	/* 文件的块数 */
 	blkcnt_t		i_blocks;
@@ -697,7 +709,9 @@ struct inode {
 	spinlock_t		i_lock;	/* i_blocks, i_bytes, maybe i_size */
 	/* 索引节点信号量 */
 	struct mutex		i_mutex;
-	/* 在直接I/O文件操作中避免出现竞争条件的读/写信号量 */
+	/* 在直接I/O文件操作中避免出现竞争条件的读/写信号量
+	保护一个inode上的I/O操作不会被另一个打断
+	*/
 	struct rw_semaphore	i_alloc_sem;
 	/* 索引节点的操作
 	索引节点函数集, 主要包含对子inode的创建, 删除等操作
@@ -709,15 +723,29 @@ struct inode {
 	struct super_block	*i_sb;
 	/* 指向文件锁链表的指针 */
 	struct file_lock	*i_flock;
-	/* 指向缓存address_space对象的指针 */
+	/* 指向缓存address_space对象的指针
+	address_Space并不代表某个地址空间，而是用于描述页高速缓存中的页面的一个文件对应一个address_space,
+	一个address_space与一个偏移量能够确定一个页高速缓存中的页面。i_mapping通常指向i_data，
+	不过二者是有区别的，i_mapping表示应该向谁请求页面，i_data表示被该inode读写的页面
+	*/
 	struct address_space	*i_mapping;
 	/* 嵌入在inode中的文件的address_space对象 */
 	struct address_space	i_data;
 #ifdef CONFIG_QUOTA
-	/* 索引节点磁盘限额 */
+	/* 索引节点磁盘限额
+	inode的磁盘限额。磁盘限额管理分为两种，一种是block的限额；另一种是
+	inode的限额，将与磁盘限额有关的操作函数放在struct super_block里是
+	因为一个文件系统会使用相同的限额管理方式，而从一个inode又都可以通过
+	i_sb字段获得该inode的超级块。MAXQUOTAS值为2，分别对应了两种限额管理
+	方式，一种是user限额，另一种是group限额
+	*/
 	struct dquot		*i_dquot[MAXQUOTAS];
 #endif
-	/* 用于具体的字符或块设备索引节点链表的指针 */
+	/* 用于具体的字符或块设备索引节点链表的指针	
+	共用同一个驱动程序的设备形成的链表。比如对于字符设备，在其open时，会
+	根据i_rdev字段查找到相应的驱动程序，并使i_cdev字段指向找到的cdev,
+	然后将inode添加到struct cdev中list字段形成的链表里
+	*/
 	struct list_head	i_devices;
 	union {
 		/* 如果文件是一个管道则使用它 */
@@ -727,9 +755,13 @@ struct inode {
 		/* 指向字符设备驱动程序的指针 */
 		struct cdev		*i_cdev;
 	};
-	/* 拥有一组次设备号的设备文件的索引 */
+	/* 拥有一组次设备号的设备文件的索引
+	i_cindex表示该设备文件在共用同一驱动程序的多个设备（主设备号相同，次设备号不同）之中的索引
+	*/
 	int			i_cindex;
-	/* 索引节点版本号（由某些文件系统使用） */
+	/* 索引节点版本号（由某些文件系统使用）
+	inode实例数目
+	*/
 	__u32			i_generation;
 
 #ifdef CONFIG_DNOTIFY
@@ -740,19 +772,21 @@ struct inode {
 #endif
 
 #ifdef CONFIG_INOTIFY
+//被监控目标上的watch(监控)链表
 	struct list_head	inotify_watches; /* watches on this inode */
+//保护watch链表的互斥锁
 	struct mutex		inotify_mutex;	/* protects the watches list */
 #endif
-	/* 索引节点的状态标志 */
+	/* 索引节点的状态标志 I_NEW,I_LOCK,I_FREEING */
 	unsigned long		i_state;
-	/* 索引节点的弄脏时间（以节拍为单位） */
+	/* 索引节点的弄脏时间（以jiffy为单位） */
 	unsigned long		dirtied_when;	/* jiffies of first dirtying */
-	/* 文件系统的安装标志 */
+	/* 文件系统的安装标志 ,S_SYNC,S_NOATIME,S_DIRSYNC*/
 	unsigned int		i_flags;
 	/* 用于写进程的引用计数器 */
 	atomic_t		i_writecount;
 #ifdef CONFIG_SECURITY
-	/* 指向索引节点安全结构的指针 */
+	/* 指向索引节点安全结构的指针(struct inode_security_struct) */
 	void			*i_security;
 #endif
 	/* 指向私有数据的指针 */
@@ -1095,12 +1129,15 @@ extern spinlock_t sb_lock;
 #define S_BIAS (1<<30)
 struct super_block {
 	/* 指向超级块链表的指针 */
+	//用以形成超级块链表
 	struct list_head	s_list;		/* Keep this first */
 	 /* 设备标识符 */
+	//超级块所属文件系统所在的设备标识符
 	dev_t			s_dev;		/* search index; _not_ kdev_t */
 	 /* 以字节为单位的块大小 */
 	unsigned long		s_blocksize;
 	  /* 以位为单位的块大小(对数) */
+	//一个块需要几个bit来表示，如果一个块是1024字节，那么s_blocksize_bits就是10
 	unsigned char		s_blocksize_bits;
 	   /* 修改（脏）标志 */
 	unsigned char		s_dirt;
@@ -1110,13 +1147,14 @@ struct super_block {
 	struct file_system_type	*s_type;
 	   /* 超级块方法 */
 	const struct super_operations	*s_op;
-	   /* 磁盘限额处理方法 */
+	   /* 磁盘限额处理方法 文件系统可以提供自己的磁盘限额处理方法，也可以使用VFS提供了的通用方法*/
 	struct dquot_operations	*dq_op;
-	   /* 磁盘限额管理方法 */
+	   /* 磁盘限额管理方法 来自用户空间的请求*/
  	struct quotactl_ops	*s_qcop;
-	    /* 网络文件系统使用的输出操作 */
+	    /* 网络文件系统使用的输出操作 导出的方法（从NFS服务器共享文件又称导出目录)*/
 	const struct export_operations *s_export_op;
-		/* 安装标志 */
+		/* 安装标志 我们使用一个文件系统时，首先要进行mount操作，在mount的时候
+		还需要给它参数，比如mount成只读或可擦写等，这些参数就是记录在s_flags*/
 	unsigned long		s_flags;
 		/* 文件系统的魔数 */
 	unsigned long		s_magic;
@@ -1124,7 +1162,7 @@ struct super_block {
 	struct dentry		*s_root;
 		  /* 卸载所用的信号量 */
 	struct rw_semaphore	s_umount;
-		  /* 超极块信号量 */
+		  /* 用于超级块同步 */
 	struct mutex		s_lock;
 		   /* 超级快引用计数器 */
 	int			s_count;
@@ -1142,6 +1180,10 @@ struct super_block {
 	struct xattr_handler	**s_xattr;
 	/* 所有索引节点的链表头 */
 	struct list_head	s_inodes;	/* all inodes */
+	/*
+	脏inode的链表。一个文件系统里有许多的inode，有的inode内容会被更改，
+	此时就称其为dirty inode，所有的dirty inode都会被记录，以便在适当的时候写入磁盘
+	*/
 	struct list_head	s_dirty;	/* dirty inodes */
 	/* 等待被写入磁盘的索引节点的链表 */
 	struct list_head	s_io;		/* parked for writeback */
@@ -1152,8 +1194,10 @@ struct super_block {
 	struct list_head	s_files;
 	/* 指向块设备驱动程序描述符的指针 */
 	struct block_device	*s_bdev;
+	//类似s_bdev,指向超级块被安装的MTD设备
 	struct mtd_info		*s_mtd;
 	 /* 用于给定文件系统类型的超级块对象链表的指针 */
+	//同一种文件系统类型的超级块通过s_instances链接
 	struct list_head	s_instances;
 	 /* 磁盘限额信息 */
 	struct quota_info	s_dquot;	/* Diskquota specific options */
@@ -1162,6 +1206,7 @@ struct super_block {
 	/* 进程挂起的等待队列，直到文件系统被解冻 */
 	wait_queue_head_t	s_wait_unfrozen;
 	/* 包含超级块的块设备名称 */
+	//文件系统名称，比如对于sysfs，s_id为“sysfs”
 	char s_id[32];				/* Informational name */
 	/* 指向特定文件系统的超级块信息的指针 */
 	void 			*s_fs_info;	/* Filesystem private info */
@@ -1430,9 +1475,24 @@ struct file_operations {
 };
 
 struct inode_operations {
-	/* 在某一目录下，为与目录项对象相关的普通文件创建一个新的磁盘索引节点。 */
+	/* 在某一目录下，为与目录项对象相关的普通文件创建一个新的磁盘索引节点。
+	在打开一个新文件时，内核必须为这个文件创建一个inode，因为一个文件一定是
+	位于某个目录下面，vFs就通过该目录inode的i_op调用create()完成新inode
+	的创建工作。传递的第一个参数就是该目录的inode，第二个参数是要打开的新文件
+	的dentry，第三个参数是对该文件的访问权限。对于普通的文件，不可能会调用到
+	它的crea七e()，因为它不是目录，没办法在它底下产生一个inode。对于目录，
+	则必须提供create()，不然没有办法在其底下产生子目录或文件
+	*/
 	int (*create) (struct inode *,struct dentry *,int, struct nameidata *);
-	/* 为包含在一个目录项对象中的文件名对应的索引节点查找目录。 */
+	/* 为包含在一个目录项对象中的文件名对应的索引节点查找目录。	
+	在指定的日录中寻找inode。与create()一样，lookup(）也是由日录的inode
+	所应该提供的。比如对于文件/home/test/test.c，如果要打开该文件，首先就要找
+	到它的inode，那么内核是如果找到它的inode呢？首先会调用根目录inode
+	的i_op一＞lookup(）找到home的dentry，然后调用home目录inode的
+	i_op一＞lookup(）找到test的dentry，接着再调用test目录inode的
+	i_op->lookup(）找到test.c的dentry，从这个dentry自然就可以获得
+	test.c的inode
+	*/
 	struct dentry * (*lookup) (struct inode *,struct dentry *, struct nameidata *);
 	 /* 创建一个新的名为new_dentry的硬链接，它指向dir目录下名为old_dentry的文件。 */
 	int (*link) (struct dentry *,struct inode *,struct dentry *);
@@ -1507,11 +1567,17 @@ extern ssize_t vfs_writev(struct file *, const struct iovec __user *,
  */
 struct super_operations {
 	/* 为索引节点对象分配空间，包括具体文件系统的数据所需要的空间。 */
+//创建和初始化一个新的索引节点对象
    	struct inode *(*alloc_inode)(struct super_block *sb);
 	/* 撤销索引节点对象，包括具体文件系统的数据。 */
 	void (*destroy_inode)(struct inode *);
 	/* 用磁盘上的数据填充以参数传递过来的索引节点对象的字段；
-	   索引节点对象的i_ino字段标识从磁盘上要读取的具体文件系统的索引节点。*/
+	   索引节点对象的i_ino字段标识从磁盘上要读取的具体文件系统的索引节点。
+	   读取一个inode，并使用它填充参数指向的inode。只会被iget()调用，通常不会
+	直接调用read_inode()，而是调用iget()返回所要的inode。那么read_inode
+	又是如何知道读取哪一个ioode？在read_inode被调用前，VFS会先在inode
+	对象中填入一些信息，比如i_ino。字段，以便readinode能够获悉需要读取哪一个inode
+	   */
 
 	void (*read_inode) (struct inode *);
     /* 当索引节点标记为修改（脏）时调用。
@@ -1522,38 +1588,59 @@ struct super_operations {
   * flag参数表示I/O操作是否应当同步。*/
 	int (*write_inode) (struct inode *, int);
 	 /* 释放索引节点时调用（减少该节点引用计数器值）以执行具体文件系统操作。*/
+	/*
+释放inode时调用。与read_inode(）相对应，基本上调用一次read_inode()
+就需要调用一次put_inode(）。put_inode(）只会被iput(）调用，iput()
+减少inode的引用计数，当该inode的引用计数减少到0时，就会调用ipu_final()
+将其释放
+*/
 	void (*put_inode) (struct inode *);
 	  /* 在即将撤消索引节点时调用——也就是说，
   * 当最后一个用户释放该索引节点时；
   * 实现该方法的文件系统通常使用generic_drop_inode()函数。
   * 该函数从VFS数据结构中移走对索引节点的每一个引用，
   * 如果索引节点不再出现在任何目录中，
-  * 则调用超级块方法delete_inode将它从文件系统中删除。*/
+  * 则调用超级块方法delete_inode将它从文件系统中删除。只会被iput_final调用*/
 	void (*drop_inode) (struct inode *);
-	 /* 在必须撤消索引节点时调用。删除内存中的VFS索引节点和磁盘上的文件数据及元数据。*/
+	 /* 在必须撤消索引节点时调用。删除内存中的VFS索引节点和磁盘上的文件数据及元数据。	
+	释放内存中的inode，并且将其从磁盘上删除。inode的引用计数为0时，它所占用
+	的内存会被释放，如果此时它的硬链接个数（inode->1nlink）也为0，就会调用
+	delete_inode(）将其从磁盘上删除
+	*/
 	void (*delete_inode) (struct inode *);
 	  /* 释放通过传递的参数指定的超级块对象（因为相应的文件系统被卸载）。*/
 	void (*put_super) (struct super_block *);
-	  /* 用指定对象的内容更新文件系统的超级块。*/
+	  /* 用指定对象的内容更新文件系统的超级块。
+	 	将超级块写回磁盘，更新磁盘上的超级块。Write_super最后应该将s_dirt
+设为0,表示这个超级块不再是脏的。另外，write_super(）应该要检查文件系统
+是否被mounte成只读（检查s_flags是否设置了MS_RDONLY标志），如果是的话
+就不需要做什么工作了
+	 	*/
 	void (*write_super) (struct super_block *);
 	  /* 在清除文件系统来更新磁盘上的具体文件系统数据结构时调用（由日志文件系统使用）。*/
 	int (*sync_fs)(struct super_block *sb, int wait);
 	 /* 阻塞对文件系统的修改并用指定对象的内容更新超级块。
   * 当文件系统被冻结时调用该方法，例如，由逻辑卷管理器驱动程序（LVM）调用。*/
 	void (*write_super_lockfs) (struct super_block *);
-	 /* 取消由write_super_lockfs()超级块方法实现的对文件系统更新的阻塞。*/
+	 /* 取消由write_super_lockfs()超级块方法实现的对文件系统更新的阻塞，锁定。*/
 	void (*unlockfs) (struct super_block *);
 	  /* 将文件系统的统计信息返回，填写在buf缓冲区中。*/
 	int (*statfs) (struct dentry *, struct kstatfs *);
-	 /* 用新的选项重新安装文件系统（当某个安装选项必须被修改时被调用）。*/
+	 /* 用新的选项重新安装文件系统（当某个安装选项必须被修改时被调用
+	使用新的选项重新mount文件系统。当一个文件系统已经被mount之后，如果我们
+希望改变之前mount时设定的参数，可以重新执行“mount”命令，并在其-o参数
+后添加remount。基本上，remount所造成的参数改变，VFS会帮我们做好，只是
+为了怕参数的改变会对文件系统本身造成行为上的改变，所以此时会调用
+Remount_fs()告诉文件系统用户要改变mount的参数，如果该文件系统有需要，可以在remount_fs中做适当的处理。
+	*/
 	int (*remount_fs) (struct super_block *, int *, char *);
-	 /* 当撤消磁盘索引节点执行具体文件系统操作时调用。*/
+	 /* 当撤消磁盘索引节点执行具体文件系统操作时调用。只会被VFS提供的clear_inode调用*/
 	void (*clear_inode) (struct inode *);
 	  /* 中断一个安装操作，因为相应的卸载操作已经开始（只在网络文件系统中使用）。*/
 	void (*umount_begin) (struct vfsmount *, int);
 	 /* 用来显示特定文件系统的选项。*/
 	int (*show_options)(struct seq_file *, struct vfsmount *);
-	/* 用来显示特定文件系统的状态。*/
+	/* 用来显示特定文件系统的状态。显示文件系统安装点的统计信息*/
 	int (*show_stats)(struct seq_file *, struct vfsmount *);
 #ifdef CONFIG_QUOTA
 	 /* 限额系统使用该方法从文件中读取数据，该文件详细说明了所在文件系统的限制。*/

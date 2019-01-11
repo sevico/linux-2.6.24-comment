@@ -181,6 +181,7 @@ static int gfar_probe(struct platform_device *pdev)
 	}
 
 	/* Create an ethernet device instance */
+	// 创建net_device数据结构
 	dev = alloc_etherdev(sizeof (*priv));
 
 	if (NULL == dev)
@@ -261,6 +262,7 @@ static int gfar_probe(struct platform_device *pdev)
 	dev->tx_timeout = gfar_timeout;
 	dev->watchdog_timeo = TX_TIMEOUT;
 #ifdef CONFIG_GFAR_NAPI
+	//软中断里会调用poll钩子函数
 	netif_napi_add(dev, &priv->napi, gfar_poll, GFAR_DEV_WEIGHT);
 #endif
 #ifdef CONFIG_NET_POLL_CONTROLLER
@@ -1398,11 +1400,16 @@ irqreturn_t gfar_receive(int irq, void *dev_id)
 
 	/* support NAPI */
 #ifdef CONFIG_GFAR_NAPI
+	// test_and_set当前net_device的napi_struct.state 为 NAPI_STATE_SCHED
+	// 在软中断里调用 net_rx_action 会检查状态 napi_struct.state
 	if (netif_rx_schedule_prep(dev, &priv->napi)) {
 		tempval = gfar_read(&priv->regs->imask);
-		tempval &= IMASK_RX_DISABLED;
+		tempval &= IMASK_RX_DISABLED; //mask掉rx，不再产生rx中断
 		gfar_write(&priv->regs->imask, tempval);
-
+		 // 将当前net_device的 napi_struct.poll_list 挂到
+		 // CPU私有变量__get_cpu_var(softnet_data).poll_list 上，并触发软中断
+		  // 所以，在软中断中调用 net_rx_action 的时候，就会执行当前net_device的
+		  // napi_struct.poll()钩子函数,即 gfar_poll()
 		__netif_rx_schedule(dev, &priv->napi);
 	} else {
 		if (netif_msg_rx_err(priv))
@@ -1498,7 +1505,7 @@ static int gfar_process_frame(struct net_device *dev, struct sk_buff *skb,
 		if (unlikely(priv->vlgrp && (fcb->flags & RXFCB_VLN)))
 			ret = gfar_rx_vlan(skb, priv->vlgrp, fcb->vlctl);
 		else
-			ret = RECEIVE(skb);
+			ret = RECEIVE(skb);//调用netif_receive_skb(skb)进入协议栈
 
 		if (NET_RX_DROP == ret)
 			priv->extra_stats.kernel_dropped++;
@@ -1524,7 +1531,7 @@ int gfar_clean_rx_ring(struct net_device *dev, int rx_work_limit)
 
 	while (!((bdp->status & RXBD_EMPTY) || (--rx_work_limit < 0))) {
 		rmb();
-		skb = priv->rx_skbuff[priv->skb_currx];
+		skb = priv->rx_skbuff[priv->skb_currx]; //从rx_skbugg[]中获取skb
 
 		if (!(bdp->status &
 		      (RXBD_LARGE | RXBD_SHORT | RXBD_NONOCTET
@@ -1534,7 +1541,7 @@ int gfar_clean_rx_ring(struct net_device *dev, int rx_work_limit)
 			howmany++;
 
 			/* Remove the FCS from the packet length */
-			pkt_len = bdp->length - 4;
+			pkt_len = bdp->length - 4;//从length中去掉以太网包的FCS长度
 
 			gfar_process_frame(dev, skb, pkt_len);
 
@@ -1551,15 +1558,15 @@ int gfar_clean_rx_ring(struct net_device *dev, int rx_work_limit)
 		dev->last_rx = jiffies;
 
 		/* Clear the status flags for this buffer */
-		bdp->status &= ~RXBD_STATS;
+		bdp->status &= ~RXBD_STATS;//清rx bd的状态
 
 		/* Add another skb for the future */
 		skb = gfar_new_skb(dev, bdp);
 		priv->rx_skbuff[priv->skb_currx] = skb;
 
 		/* Update to the next pointer */
-		if (bdp->status & RXBD_WRAP)
-			bdp = priv->rx_bd_base;
+		if (bdp->status & RXBD_WRAP) //更新指向bd的指针
+			bdp = priv->rx_bd_base;//bd有WARP标记，说明是最后一个bd了，需要“绕回来” 
 		else
 			bdp++;
 
@@ -1580,17 +1587,22 @@ int gfar_clean_rx_ring(struct net_device *dev, int rx_work_limit)
 static int gfar_poll(struct napi_struct *napi, int budget)
 {
 	struct gfar_private *priv = container_of(napi, struct gfar_private, napi);
+	//TSEC对应的网络设备
 	struct net_device *dev = priv->dev;
 	int howmany;
-
+	 //根据dev的rx bd，获取skb并送入协议栈，返回处理的skb的个数，即以太网包的个数
 	howmany = gfar_clean_rx_ring(dev, budget);
+	// 下面这个判断比较有讲究的
+		// 收到的包的个数小于budget，代表我们在一个软中断里就全处理完了，所以打开 rx中断
+		// 要是收到的包的个数大于budget，表示一个软中断里处理不完所有包，那就不打开rx 中断，
+		// 待到下一个软中断里再接着处理，直到把所有包处理完(即howmany<budget)，再打开rx 中断
 
 	if (howmany < budget) {
 		netif_rx_complete(dev, napi);
 
 		/* Clear the halt bit in RSTAT */
 		gfar_write(&priv->regs->rstat, RSTAT_CLEAR_RHALT);
-
+		//打开 rx 中断，rx 中断是在gfar_receive()中被关闭的
 		gfar_write(&priv->regs->imask, IMASK_DEFAULT);
 
 		/* If we are coalescing interrupts, update the timer */
@@ -1976,6 +1988,7 @@ static irqreturn_t gfar_error(int irq, void *dev_id)
 }
 
 /* Structure for a device driver */
+// 平台设备 TSEC 的数据结构
 static struct platform_driver gfar_driver = {
 	.probe = gfar_probe,
 	.remove = gfar_remove,

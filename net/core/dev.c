@@ -2152,8 +2152,11 @@ EXPORT_SYMBOL(__napi_schedule);
 
 static void net_rx_action(struct softirq_action *h)
 {
+	//通过 napi_struct.poll_list，将N多个 napi_struct 链接到一条链上 
+	//通过 CPU私有变量，我们找到了链头，然后开始遍历这个链
 	struct list_head *list = &__get_cpu_var(softnet_data).poll_list;
 	unsigned long start_time = jiffies;
+	//这个值就是 net.core.netdev_max_backlog，通过sysctl来修改
 	int budget = netdev_budget;
 	void *have;
 
@@ -2180,6 +2183,7 @@ static void net_rx_action(struct softirq_action *h)
 		 * entries to the tail of this list, and only ->poll()
 		 * calls can remove this head entry from the list.
 		 */
+		 //从链上取一个 napi_struct 结构（接收中断处理函数里加到链表上的，如gfar_receive）
 		n = list_entry(list->next, struct napi_struct, poll_list);
 
 		have = netpoll_poll_lock(n);
@@ -2193,7 +2197,10 @@ static void net_rx_action(struct softirq_action *h)
 		 * accidently calling ->poll() when NAPI is not scheduled.
 		 */
 		work = 0;
+		//检查状态标记，此标记在接收中断里加上的
 		if (test_bit(NAPI_STATE_SCHED, &n->state))
+			//使用NAPI的话，使用的是网络设备自己的napi_struct.poll 
+			//对于TSEC是，是gfar_poll
 			work = n->poll(n, weight);
 
 		WARN_ON_ONCE(work > weight);
@@ -2209,6 +2216,7 @@ static void net_rx_action(struct softirq_action *h)
 		 */
 		if (unlikely(work == weight)) {
 			if (unlikely(napi_disable_pending(n)))
+				//操作napi_struct,把去掉NAPI_STATE_SCHED状态，从链表中删去
 				__napi_complete(n);
 			else
 				list_move_tail(&n->poll_list, list);
@@ -4428,7 +4436,7 @@ static int __init net_dev_init(void)
 	/*
 	 *	Initialise the packet receive queues.
 	 */
-
+	//_get_cpu_var(softnet_data).poll_list很重要，软中断中需要遍历它的
 	for_each_possible_cpu(i) {
 		struct softnet_data *queue;
 
@@ -4444,8 +4452,9 @@ static int __init net_dev_init(void)
 	netdev_dma_register();
 
 	dev_boot_phase = 0;
-
+	//在软中断上挂网络发送handler
 	open_softirq(NET_TX_SOFTIRQ, net_tx_action, NULL);
+	//在软中断上挂网络接收handler
 	open_softirq(NET_RX_SOFTIRQ, net_rx_action, NULL);
 
 	hotcpu_notifier(dev_cpu_callback, 0);

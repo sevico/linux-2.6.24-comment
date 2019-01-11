@@ -34,15 +34,18 @@ typedef unsigned long mm_counter_t;
  * who is mapping it.
  */
 struct page {
+//页面标识
 	unsigned long flags;		/* Atomic flags, some possibly
 					 * updated asynchronously */
+//引用次数
 	atomic_t _count;		/* Usage count, see below. */
 	union {
+		//映射计数器
 		atomic_t _mapcount;	/* Count of ptes mapped in mms,
 					 * to show when page is mapped
 					 * & limit reverse map searches.
 					 */
-		unsigned int inuse;	/* SLUB: Nr of objects */
+		unsigned int inuse;	/* SLUB: Nr of objects 用于slub*/
 	};
 	union {
 	    struct {
@@ -53,6 +56,7 @@ struct page {
 						 * indicates order in the buddy
 						 * system if PG_buddy is set.
 						 */
+		//文件缓存空间
 		struct address_space *mapping;	/* If low bit clear, points to
 						 * inode address_space, or NULL.
 						 * If page mapped as anonymous

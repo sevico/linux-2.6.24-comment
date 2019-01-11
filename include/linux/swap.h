@@ -133,18 +133,18 @@ enum {
  */
 struct swap_info_struct {
 	unsigned int flags;
-	int prio;			/* swap priority */
-	struct file *swap_file;
-	struct block_device *bdev;
+	int prio;			/* swap priority交换空间优先级 */
+	struct file *swap_file; //普通文件作交换
+	struct block_device *bdev; //块设备作交换空间
 	struct list_head extent_list;
 	struct swap_extent *curr_swap_extent;
 	unsigned old_block_size;
-	unsigned short * swap_map;
-	unsigned int lowest_bit;
-	unsigned int highest_bit;
-	unsigned int cluster_next;
-	unsigned int cluster_nr;
-	unsigned int pages;
+	unsigned short * swap_map; //交换页分配表
+	unsigned int lowest_bit;//分配表的起始自由页索引
+	unsigned int highest_bit;//分配表的终止自由页索引
+	unsigned int cluster_next;//下一簇内分配点
+	unsigned int cluster_nr; //簇内自由页面数
+	unsigned int pages; //交换文件有效页面数
 	unsigned int max;
 	unsigned int inuse_pages;
 	int next;			/* next entry on swap list */

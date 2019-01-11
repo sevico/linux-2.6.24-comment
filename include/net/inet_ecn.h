@@ -8,10 +8,15 @@
 #include <net/dsfield.h>
 
 enum {
+	//发送端不支持ecn
 	INET_ECN_NOT_ECT = 0,
+	//下面这个貌似没有用到，不知道有什么意义
 	INET_ECN_ECT_1 = 1,
+	//发送端支持ecn  
 	INET_ECN_ECT_0 = 2,
-	INET_ECN_CE = 3,
+	//发生了拥塞  
+	INET_ECN_CE = 3,	
+	//掩码  
 	INET_ECN_MASK = 3,
 };
 
