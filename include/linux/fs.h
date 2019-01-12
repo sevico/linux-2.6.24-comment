@@ -919,11 +919,15 @@ struct file {
 	 */
 	 //fu_list 链接在 super_block->s_files中
 	union {
+	//file链表，一个文件系统的所有已打开文件都通过fu_list挂入该文件系统超级块的s_files链表中
 		struct list_head	fu_list;
+	//保护file的RCU
 		struct rcu_head 	fu_rcuhead;
 	} f_u;  /* 用于通用文件对象链表的指针 */
 	struct path		f_path;
+	//与该文件相关的dentry
 #define f_dentry	f_path.dentry
+//该文件所在文件系统的安装点,和f_dentry一起可以得到该文件在系统中的绝对路径
 #define f_vfsmnt	f_path.mnt
 	/* 指向文件操作表的指针 */
 	const struct file_operations	*f_op;
@@ -935,19 +939,27 @@ struct file {
 	mode_t			f_mode;
 	  /* 当前的文件位移量（文件指针） */
 	loff_t			f_pos;
-	  /* 通过信号进行I/O事件通知的数据 */
+	  /* 通过信号进行I/O事件通知的数据 */	
+	/*fowner记录了一个进程ID和某些事件发生（比如文件有新数据可用）时发送给该
+	进程的信号*/
 	struct fown_struct	f_owner;
 	  /* 用户的UID、GID */
 	unsigned int		f_uid, f_gid;
 	   /* 文件预读状态 */
 	struct file_ra_state	f_ra;
-	/* 版本号，每次使用后自动递增 */
+	/* 版本号，每次使用后自动递增
+	当文件的f_pos改变时，f_version递增
+	*/
 	u64			f_version;
 #ifdef CONFIG_SECURITY
-	/* 指向文件对象的安全结构的指针 */
+	/* 指向文件对象的安全结构的指针	
+	指向文件安全数据结构（struct fiie_security_struct）的指针
+	*/
 	void			*f_security;
 #endif
-	/* needed for tty driver, and maybe others */
+	/* needed for tty driver, and maybe others
+	用于存放一些供文件系统或驱动程序使用的私有数据
+	*/
 	void			*private_data;
 
 #ifdef CONFIG_EPOLL
@@ -957,6 +969,7 @@ struct file {
 	struct list_head	f_ep_links; /* 文件的事件轮询等待者链表的头 */
 	spinlock_t		f_ep_lock; /* 保护f_ep_links链表的自旋锁 */
 #endif /* #ifdef CONFIG_EPOLL */
+//该文件对应的address_space，参看struct inode的i_mapping字段
 	struct address_space	*f_mapping; /* 指向文件地址空间对象的指针 */
 };
 //保护超级块的s_files链表免受多处理器系统上的同时访问
@@ -1372,19 +1385,29 @@ typedef int (*read_actor_t)(read_descriptor_t *, struct page *, unsigned long, u
 struct file_operations {
 	/* 指向一个模块的拥有者，该字段主要应用于那些有模块产生的文件系统 */
 	struct module *owner;
-	 /* 更新文件指针。*/
+	 /* 更新文件指针。
+		设定从文件的哪个位置开始读写，由系统调用llseek()调用
+		*/
 	loff_t (*llseek) (struct file *, loff_t, int);
-	/* 从文件的*offset处开始读出count个字节；然后增加*offset的值（一般与文件指针对应）。 */
+	/* 从文件的*offset处开始读出count个字节；然后增加*offset的值（一般与文件指针对应）	
+	从文件的指定位置（第四个参数为offset)读取指定的字节(第三个参数)到指定的buf
+	（第二个参数）中，同时要更新文件的f_pos由系统调用read调用
+	*/
 	ssize_t (*read) (struct file *, char __user *, size_t, loff_t *);
 	/**
 		 * 向设备发送数据。如果没有这个函数，write系统调用会向程序返回一个-EINVAL。如果返回值非负，则表示成功写入的字节数。
+		 从给定的buf（第二个参数）中取出指定长度（第三个参数）的数据，写入文件的		 
+		 指定位置（第四个参数为文件的offset)，由系统调用write()调用
 		 */
 	ssize_t (*write) (struct file *, const char __user *, size_t, loff_t *);
 	/* 启动一个异步I/O操作，从文件的pos处开始读出len个字节的数据并将它们放入buf中 
   * （引入它是为了支持io_submit()系统调用）。 */
+	/*以异步的方式从文件中读取数据，由系统调用aio_read调用，aio是"asynchronous I/O”
+	的缩写*/
 	ssize_t (*aio_read) (struct kiocb *, const struct iovec *, unsigned long, loff_t);
 	/**
-	 * 初始化设备上的异步写入操作。
+	 * 初始化设备上的异步写入操作。	 
+	 以异步的方式向文件中写数据，由系统调用aio_write()调用
 	 */
 	ssize_t (*aio_write) (struct kiocb *, const struct iovec *, unsigned long, loff_t);
 	/**
@@ -1395,12 +1418,14 @@ struct file_operations {
 		/**
 	 * POLL方法是poll、epoll和select这三个系统调用的后端实现。这三个系统调用可用来查询某个或多个文件描述符上的读取或写入是否会被阻塞。
 	 * poll方法应该返回一个位掩码，用来指出非阻塞的读取或写入是否可能。并且也会向内核提供将调用进程置于休眠状态直到IO变为可能时的信息。
-	 * 如果驱动程序将POLL方法定义为NULL，则设备会被认为既可读也可写，并且不会阻塞。
+	 * 如果驱动程序将POLL方法定义为NULL，则设备会被认为既可读也可写，并且不会阻塞。	 
+	 检查指定文件上是否有操作发生，如果没有则休眠，直到该文件上有操作发生，由系统调用poll
 	 */
 	unsigned int (*poll) (struct file *, struct poll_table_struct *);
 		/**
 	 * 系统调用ioctl提供了一种执行设备特殊命令的方法(如格式化软盘的某个磁道，这既不是读也不是写操作)。
 	 * 另外，内核还能识别一部分ioctl命令，而不必调用fops表中的ioctl。如果设备不提供ioctl入口点，则对于任何内核未预先定义的请求，ioctl系统调用将返回错误(-ENOTYY)
+	 用于向设备发送command，由系统调用ioctl。这个函数要做的事情很简单，只是根据command的值，进行适当的操作
 	 */
 	int (*ioctl) (struct inode *, struct file *, unsigned int, unsigned long);
 		/**
@@ -1409,15 +1434,20 @@ struct file_operations {
 	long (*unlocked_ioctl) (struct file *, unsigned int, unsigned long);
 		/**
 	 * 64位内核使用该方法实现32位系统调用。
+	 考虑这样的场景：用户应用是32位的而内核和硬件架构都是64位的。这种情况下，
+应用调用ioctl()时，内核里必须有进行32位到64位转化的机制。compat_ioctl()
+即是用于64位的内核执行来自32位应用的ioctl()
 	 */
 	long (*compat_ioctl) (struct file *, unsigned int, unsigned long);
 	/**
-	 * 请求将设备内存映射到进程地址空间。如果设备没有实现这个方法，那么mmap系统调用将返回-ENODEV。
+	 * 请求将设备内存映射到进程地址空间。如果设备没有实现这个方法，那么mmap系统调用将返回-ENODEV。	 
+	 将指定的文件映射到指定的地址空间上，由系统调用mmap()调用
 	 */
 	int (*mmap) (struct file *, struct vm_area_struct *);
 		/**
 	 * 尽管这始终是对设备文件执行的第一个操作，然而却并不要求驱动程序一定要声明一个相应的方法。
-	 * 如果这个入口为NULL，设备的打开操作永远成功，但系统不会通知驱动程序。
+	 * 如果这个入口为NULL，设备的打开操作永远成功，但系统不会通知驱动程序。	 
+	 创建新的文件对象，并将它和相应的inode关联起来，由系统调用open调用
 	 */
 	int (*open) (struct inode *, struct file *);
 	/**
@@ -1425,13 +1455,18 @@ struct file_operations {
 	 * 请不要将它同用户程序使用的fsync操作相混淆。目前，flush仅仅用于少数几个驱动程序。比如，SCSI磁带驱动程序用它来确保设备被关闭之前所有的数据都被写入磁带中。
 	 * 如果flush被置为NULL，内核将简单地忽略用户应用程序的请求。
 	 */
+	 /*当己打开的文件引用计数减少时（系统调用close被调用），该函数会被调用。
+它的作用根据具体文件系统而定*/
 	int (*flush) (struct file *, fl_owner_t id);
 	/**
-	 * 当file结构被释放时，将调用这个操作。与open相似，也可以将release设置为NULL。
+	 * 当file结构被释放时，将调用这个操作。与open相似，也可以将release设置为NULL。	 
+	 释放文件对象，当已打开文件的引用计数变为0时，该函数会被调用
 	 */
 	int (*release) (struct inode *, struct file *);
 	/**
 	 * 该方法是fsync系统调用的后端实现。用户调用它来刷新待处理的数据。如果驱动程序没有实现这一方法，fsync系统调用将返回-EINVAL。
+	 将文件所有被缓存的数据写入磁盘，由系统调用fsync和fdatasync调用,
+	 fdatasync()只会影响文件的数据部分，fsync则还会同步更新文件的属性
 	 */
 	int (*fsync) (struct file *, struct dentry *, int datasync);
 	/**
@@ -1441,36 +1476,49 @@ struct file_operations {
 	/**
 	 * 这个操作用来通知设备其FASYNC标志发生了变化。异步通知是比较高级的话题，如果设备不支持异步通知，该字段可以是NULL。
 	 */
+	 //打开或关闭异步I/O的通知信号
 	int (*fasync) (int, struct file *, int);
 	/**
 	 * LOCK方法用于实现文件锁定，锁定是常规文件不可缺少的特性。但是设备驱动程序几乎从来不会实现这个方法。
 	 */
+	 //用以对文件加锁
 	int (*lock) (struct file *, int, struct file_lock *);
 	/**
 	 * sendpage是sendfile系统调用的另一半。它由内核调用以将数据发送到对应的文件。每次一个数据页。
-	 * 设备驱动程序通常也不需要实现sendfile。
+	 * 设备驱动程序通常也不需要实现sendfile。	 
+	 用来从一个文件向另一个文件发送数据，一次一页地将数据从文件传送到页高速缓存中的页
 	 */
 	ssize_t (*sendpage) (struct file *, struct page *, int, size_t, loff_t *, int);
 	/**
 	 * 在进程的地址空间中找到一个合适的位置，以便将底层设备中的内存段映射到该位置。
 	 * 该任务通常由内存管理代码完成，但该方法的存在可允许驱动程序强制满足特定设备需要的任何对齐要求。大部分驱动程序可设置该方法为NULL。
+	 在进程的地址空间中找到一个未使用的地址范围来映射文件
 	 */
 	unsigned long (*get_unmapped_area)(struct file *, unsigned long, unsigned long, unsigned long, unsigned long);
 	/**
 	 * 该方法允许模块检查传递给fcntl调用的标志。当前只适用于NFS
-	 */
+	 */	 
+	/*使用系统调用fcntl()设置文件的的状态标志（F_SETFL命令）时，调用
+	check_flaqs(）进行附加的检查*/
 	int (*check_flags)(int);
 	/**
 	 * 当应用程序使用fcntl来请求目录改变通知时，该方法将被调用。该方法仅对文件系统有用，驱动程序不必实现dir_notify。
 	 * 当前适用于CIFS。
 	 */
+	 //使用系统调用fcntl()请求目录改变通知（F_NOTIFY）时，调用dir_noify
 	int (*dir_notify)(struct file *filp, unsigned long arg);
 	/**
-	 * 用于定制flock系统调用的行为。当进程试图对文件加锁时，回调此函数。
+	 * 用于定制flock系统调用的行为。当进程试图对文件加锁时，回调此函数。由系统调用flock调用
 	 */
 	int (*flock) (struct file *, int, struct file_lock *);
+	//从一个管道移动数据到一个文件，由系统调用spIice调用
 	ssize_t (*splice_write)(struct pipe_inode_info *, struct file *, loff_t *, size_t, unsigned int);
+	//从一个文件移动数据到一个管道，由系统调用splice调用
 	ssize_t (*splice_read)(struct file *, loff_t *, struct pipe_inode_info *, size_t, unsigned int);
+	/*
+	为一个已打开的文件设置一个租约(lease)，文件租约提供当一个进程试图打开或
+	读写文件内容时，拥有文件租约的进程将会被通知的机制
+	*/
 	int (*setlease)(struct file *, long, struct file_lock **);
 };
 
@@ -1495,29 +1543,72 @@ struct inode_operations {
 	*/
 	struct dentry * (*lookup) (struct inode *,struct dentry *, struct nameidata *);
 	 /* 创建一个新的名为new_dentry的硬链接，它指向dir目录下名为old_dentry的文件。 */
+	/*
+	创建硬链接（hard link)，日录的inode应该提供这个函数。硬链接和原始文件
+	必须位于同一个文件系统，它们共享同一个inode，原始文件被删除后，因为硬链接
+	仍然存在，所以该文件仍然存在，可以通过硬链接去读取它，只有当其所有的硬链接
+	都被删除，即它的引用计数为0时（每添加一个硬链接引用计数加1，删除一个硬链接
+	计数器减1)，该文件才会被删除。系统调用link()可以用来创建硬链接，它会调用
+	i_op->link(）完成这个工作，传递的第一个参数为原始文件的dentry，第二个参数
+	为所产生的link所在目录的inode，第三个参数为硬链接文件的dentry
+	*/
 	int (*link) (struct dentry *,struct inode *,struct dentry *);
-	  /* 从一个目录中删除目录项对象所指定文件的硬链接。 */
+	  /* 从一个目录中删除目录项对象所指定文件的硬链接。	  
+	  从一个日录中删除指定文件的硬链接，日录的inode应该提供这个函数。硬链接引用
+	  的是文件的物理数据，而符号链接引用的则是文件在文件系统中的位置，如果原始文件
+	  被删除，它所有的符号连接也会被破坏。系统调用unlink()可以用来删除文件，它会
+	  去调用i_op->unlink()，传递的第一个参数为硬链接所在目录的inode，第二个参
+	  数为要删除文件的dentry，它至少会把指定文件的引用计数减1
+	  */
 	int (*unlink) (struct inode *,struct dentry *);
-	  /* 在某个目录下，为与目录项对象相关的符号链接创建一个新的索引节点。 */
+	  /* 在某个目录下，为与目录项对象相关的符号链接创建一个新的索引节点。	  
+	  创建符号连接，目录的inode应该提供这个函数。它会被系统调用symlink()调用，
+	  第一个参数为符号连接所在日录的inode，第一二个参数为所创建的符号连接本身的
+	  dentry，第三个参数则指定了符号链接的内容，通常是一个路径名称
+	  */
 	int (*symlink) (struct inode *,struct dentry *,const char *);
-	  /* 在某个目录下，为与目录项对象相关的目录创建一个新的索引节点。 */
+	  /* 在某个目录下，为与目录项对象相关的目录创建一个新的索引节点。
+	  创建新目录,会被系统调用mkdir()调用，第一个参数表示要产生的目录所在的目录
+	  第二个参数指的是要产生的目录，第三个参数则是目录的权限。在代表目录的inode
+	  里，i_nlink字段表示目录中有几个文件或子目录，所以目录刚被创建时，它的
+	  i_nlink为2，有两个子目录“.”和“..”
+	  */
 	int (*mkdir) (struct inode *,struct dentry *,int);
 	  /**
 	 * 移除目录。
 	 */
 	int (*rmdir) (struct inode *,struct dentry *);
 	  	/**
-	 * 为特定设备文件创建一个索引节点。
+	 * 为特定设备文件创建一个索引节点。	 
+	 创建特殊文件（设备文件、管道、套接字等），会被系统调用mknod()调用。它会在
+	 第一个参数指定的目录下产生一个inode，初始模式由第三个参数指定，如果要产生
+	 的文件是设备文件，那么第四个参数就是该设备的标识符
 	 */
 	int (*mknod) (struct inode *,struct dentry *,int,dev_t);
 		 /* 将old_dir目录下由old_entry标识的文件移到new_dir目录下。
-  * 新文件名包含在new_dentry指向的目录项对象中。 */
+  * 新文件名包含在new_dentry指向的目录项对象中。
+将旧目录（第一个参数）下的源文件（第二个参数）移动到新目录（第三个参数）,
+并更改为目标文件（第四个参数），旧目录inode的i_nlink应该减1，新目录inode
+的i_nlink应该加1
+
+*/
 	int (*rename) (struct inode *old_dir, struct dentry *old_entry,
 			struct inode *new_dir, struct dentry *new_dentry);
-	/* 将目录项所指定的符号链接中对应的文件路径名拷贝到buffer所指定的用户态内存区。 */
+	/* 将目录项所指定的符号链接中对应的文件路径名拷贝到buffer所指定的用户态内存区。	
+	当inode是一个符号链接时，它需要提供这个函数。readlink(）读取指定符号连接
+	（第一个参数）的数据到特定的缓冲区（第二个参数），读取数据的最大长度不超过第
+	三个参数指定的长度
+	*/
 	int (*readlink) (struct dentry *, char __user *,int);
 	 /* 解析索引节点对象所指定的符号链接；如果该符号链接是一个相对路径名，
-  * 则从第二个参数所指定的目录开始进行查找。 */
+  * 则从第二个参数所指定的目录开始进行查找。
+一个符号链接查找它指向的索引节点，与readlink()一样，如果inode是一个
+符号链接时，它需要提供这个函数。比如当我们读取符号连接a时，如果a指向文件
+/home/tmp/test.c，那么我们事实上会读到文件/home/tmp/test.c，这个解析
+符号链接的工作就由follow_link(）完成。Follow_link()返回一个可以传递给
+Put_link(）的指针
+
+*/
 	void * (*follow_link) (struct dentry *, struct nameidata *);
 	/* 释放由follow_link方法分配的用于解析符号链接的所有临时数据结构。 */
 	void (*put_link) (struct dentry *, struct nameidata *, void *);
@@ -1530,19 +1621,28 @@ struct inode_operations {
 	 * 修改文件属性。
 	 */
 	int (*setattr) (struct dentry *, struct iattr *);
-		/* 由一些文件系统用于读取索引节点属性。 */
+		/* 由一些文件系统用于读取索引节点属性。获取inode属性 */
 	int (*getattr) (struct vfsmount *mnt, struct dentry *, struct kstat *);
-		/* 为索引节点设置“扩展属性”（扩展属性存放在任何索引节点之外的磁盘块中）。 */
+		/* 为索引节点设置“扩展属性”（扩展属性存放在任何索引节点之外的磁盘块中）。		
+		为指定的文件（第一个参数）设置特定的扩展属性。扩展属性（xattr）允许用户将
+		文件与未被文件系统所解释的信息关联起来，与之相对应的是经过文件系统严格定义的
+		正规文件属性，比如文件创建和修改的事件等。扩展文件属性的典型应用包括文件作者、
+		文件编码等。每个扩展属性由一个名字和与之相关联的数据组成
+		*/
 	int (*setxattr) (struct dentry *, const char *,const void *,size_t,int);
 	 /* 获取索引节点的扩展属性。 */
 	ssize_t (*getxattr) (struct dentry *, const char *, void *, size_t);
-	/* 获取扩展属性名称的整个链表。 */
+	/* 获取扩展属性名称的整个链表。
+	列出指定文件的所有扩展属性
+	*/
 	ssize_t (*listxattr) (struct dentry *, char *, size_t);
 	/**
 	 * 删除索引节点的扩展属性。
 	 */
 	int (*removexattr) (struct dentry *, const char *);
+	//截去文件中一个连续的区域(指定范围的block)
 	void (*truncate_range)(struct inode *, loff_t, loff_t);
+	//为文件预分配磁盘空间，可参看http://lwn.net/Articles/226710/
 	long (*fallocate)(struct inode *inode, int mode, loff_t offset,
 			  loff_t len);
 };
@@ -1790,15 +1890,48 @@ static inline void file_accessed(struct file *file)
 int sync_inode(struct inode *inode, struct writeback_control *wbc);
 
 struct file_system_type {
+	//文件系统的名字，不能为NULL，否则无法使用mount命令进行安装
 	const char *name;
+	/*	
+	文件系统类型标志的bitmap，相关标志定义在include/linux/fs.h文件中：
+	FS_REQUIRES_DEV：表示该文件系统建立在实际的物理磁盘之上(proc文件系统	只存在于内存),比如Ext2、MINIX等。	
+	FS_BINARY_MOUNTDATA：告诉selinux(Security-Enhanced Linux）代码
+	mount的数据是二进制的，不能被标准的选项解析器（option parser）处理。在coda、SMBFS、NFS等文件系统中有使用。
+	FS_HAS_SUBTYPE：表示该文件系统有子类型，FUSE中有使用，主要是为了解决
+基于FUSE的文件系统的描述问题而引入。从内核的角度看，FUSE相关的仅有两种文
+件系统类型―FUSE和FUSEBLK，但从用户的角度看，有很多种文件系统类型，他们
+并不关心这些文件系统类型是否是基于FUSE的。旧的描述方式在mount·些这样的
+文件系统时会产生问题，因此内核引入了子文件系统类型，使用type.subtype的方
+式描述一个基于FUSE的文件系统。
+	FS_REVAL_DOT：告诉vFS使“.”、“..”等路径重新生效（revalidate)，因
+	为它们可能已经无效（stale）了。NFS中有使用。	
+	FS_RENAME_DOES_D_MOVE：表示具体的文件系统将在rename期间处理
+	dmove。在NFS、OCFS2中有使用。
+	*/
 	int fs_flags;
+	/*	
+	在安装文件系统时，会调用get_sb从磁盘中获取超级块。这个函数必须提供，
+	它主要是通过调用get_sb_bdev(),get_sb_single(),get_sb_nodev等函数完成工作
+	*/
 	int (*get_sb) (struct file_system_type *, int,
 		       const char *, void *, struct vfsmount *);
+	//卸载文件系统时，会调用kill_sb进行一些清理工作。这个函数必须提供，它主要
+	//是通过kill_block_super,kill_anon_super,kill_litter_super等函数完成工作
 	void (*kill_sb) (struct super_block *);
+	//指向拥有这个结构的模块，如果一个文件系统被编译进内核，则该字段为NULL
 	struct module *owner;
+	/*
+	形成文件系统类型链表。在fs/filesystem.c文件中定义了一个全局变量
+file_systems，它就是所有己注册（注意不是已安装）的文件系统类型链表的头。
+register_filesystem通过next字段将一个文件系统类型添加到这个链表里，
+unregister_filesystem(）将一个文件系统类型从这个链表里删除。
+	*/
 	struct file_system_type * next;
+	//同一种文件类型的超级块形成一个链表，fs_supers是这个链表的头
 	struct list_head fs_supers;
-
+	/*
+	如果编译内核时没有配置CONFIG_LOCKDEP选项，s_lock_key和s_umount_key将不占用内存空间
+	*/
 	struct lock_class_key s_lock_key;
 	struct lock_class_key s_umount_key;
 
