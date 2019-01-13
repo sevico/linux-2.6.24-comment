@@ -2161,14 +2161,19 @@ void __init vfs_caches_init(unsigned long mempages)
 
 	reserve = min((mempages - nr_free_pages()) * 3/2, mempages - 1);
 	mempages -= reserve;
-
+	/*	
+	创建路径名缓存names_cachep,Linux系统路径名的限制为PATH_MAX(4096）字
+	节，文件名的限制为NAME_MAX(255)字节，PATH_MAX和NAME_MAX在
+	inClude/linux/limits.h文件中被定义
+	*/
 	names_cachep = kmem_cache_create("names_cache", PATH_MAX, 0,
 			SLAB_HWCACHE_ALIGN|SLAB_PANIC, NULL);
-
+	//创建文件对象缓存filep_cachep,存放类型为struct file的对象
 	filp_cachep = kmem_cache_create("filp", sizeof(struct file), 0,
 			SLAB_HWCACHE_ALIGN|SLAB_PANIC, NULL);
-
+	//创建目录项缓存dentry_cache，存放类型为struct dentry的对象
 	dcache_init();
+	//创建索引节点缓存inode_cachep，存放类型为struct inode的对象
 	inode_init();
 	files_init(mempages);
 	mnt_init();

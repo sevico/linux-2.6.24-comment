@@ -75,11 +75,16 @@ static atomic_t inotify_cookie;
  * This structure is protected by the mutex 'mutex'.
  */
 struct inotify_handle {
+//通过idr将wd映射到watch,idr是一种将整数ID和特定指针关联在一起的机制
 	struct idr		idr;		/* idr mapping wd -> watch */
+//保护watch链表
 	struct mutex		mutex;		/* protects this bad boy */
+//watch链表，每个inotify实例(inotify_handle)可以处理多个watch
 	struct list_head	watches;	/* list of watches */
 	atomic_t		count;		/* reference count */
+	//最后分配的wd(watch descriptor)
 	u32			last_wd;	/* the last wd allocated */
+	//该inotify实例的处理函数集
 	const struct inotify_operations *in_ops; /* inotify caller operations */
 };
 

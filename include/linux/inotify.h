@@ -16,10 +16,18 @@
  * such as IN_CREATE, IN_DELETE, IN_OPEN, IN_CLOSE, ..., relative to the wd.
  */
 struct inotify_event {
+//与事件关联的watch
 	__s32		wd;		/* watch descriptor */
+//事件掩码，说明发生了什么事件
 	__u32		mask;		/* watch mask */
+/*
+当把一个文件从一个日录移动到另一个目录时，inotify产生分别针对源和日标的
+两个移动事件（监控源和目标时），可以使用cookie将两个事件绑在一起。
+
+*/
 	__u32		cookie;		/* cookie to synchronize two events */
 	__u32		len;		/* length (including nulls) of name */
+	//被监控的文件名
 	char		name[0];	/* stub for possible name */
 };
 
@@ -80,18 +88,26 @@ struct inotify_event {
  * implementation.
  */
 struct inotify_watch {
+//通过h_list链接在inotify_handle对象的watch链表上
 	struct list_head	h_list;	/* entry in inotify_handle's list */
+//通过i_list链接在inode对象的watch链表上，因此一个watch同时位于两个watch链表上
 	struct list_head	i_list;	/* entry in inode's list */
 	atomic_t		count;	/* reference count */
+	//该watch对应的inotify_handle对象
 	struct inotify_handle	*ih;	/* associated inotify handle */
+	//相关的inode
 	struct inode		*inode;	/* associated inode */
+	//watch描述符，等于inotify_add_watch()返回值
 	__s32			wd;	/* watch descriptor */
+	//被watch所监控的事件掩码
 	__u32			mask;	/* event mask for this watch */
 };
 
 struct inotify_operations {
+	//监控事件的处理函数
 	void (*handle_event)(struct inotify_watch *, u32, u32, u32,
 			     const char *, struct inode *);
+	//销毁指定的watch
 	void (*destroy_watch)(struct inotify_watch *);
 };
 

@@ -13,18 +13,30 @@ struct open_intent {
 };
 
 enum { MAX_NESTED_LINKS = 8 };
-
+//用于在路径查找的过程中记录中间信息和查找结果
 struct nameidata {
+//所解析的最后一个路径分量的dentry对象
 	struct dentry	*dentry;
+	//dentry所属的文件系统
 	struct vfsmount *mnt;
+	//路径的最后一个分量，比如查找路径／home/test，则last.name=“test”,last.len=4
 	struct qstr	last;
+	//路径查找的标志，如表10.1所示
 	unsigned int	flags;
+	/*	
+	路径最后一个分量的类型，可以取LAST_NORM、LAST_ROOT、LAST_DOT、
+	LAST_DOTDOT、LAST_BIND，比如最后一个路径分量为目录“..”时，last_type
+	LAST_DOTDOT
+	*/
 	int		last_type;
+	//链接嵌套的深度
 	unsigned	depth;
+	//与嵌套的符号连接关联的路径名数组
 	char *saved_names[MAX_NESTED_LINKS + 1];
 
 	/* Intent data */
 	union {
+		//说明文件如何访问
 		struct open_intent open;
 	} intent;
 };

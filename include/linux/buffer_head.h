@@ -63,19 +63,23 @@ typedef void (bh_end_io_t)(struct buffer_head *bh, int uptodate);
  */
 struct buffer_head {
 //缓冲区状态标志,如BH_Uptodate
+//缓冲区状态，可用的状态标志都被包含在枚举变量bh_state_bits的定义中
 	unsigned long b_state;		/* buffer state bitmap (see above) */
 //指向缓冲区页的链表中的下一个元素的指针
+//通过b_this_page字段，可以使同一页面的缓冲区形成一个链表
 	struct buffer_head *b_this_page;/* circular list of page's buffers */
 //批向拥有该块的缓冲区页的描述符指针
+//指向缓冲区所在页面
 	struct page *b_page;		/* the page this bh is mapped to */
 //与块设备相关的块号（逻辑块号），即块在磁盘或者分区中的编号
 	sector_t b_blocknr;		/* start block number */
-	//块大小
+	//块大小，以字节为单位
 	size_t b_size;			/* size of mapping */
 	/**
 	 * 块在缓冲区页内的位置，这个位置的编号依赖于页是否在高端内存。
 	 * 如果在高端内存，则b_data字段存放的是块缓冲区相对于页的起始位置的偏移量。
-	 * 否则存放的是块缓冲区的线性地址。
+	 * 否则存放的是块缓冲区的线性地址。	 
+	 块数据的首地址，该缓冲区在内存中的起始地址为b_data，结束地址为b_data+b_size
 	 */
 	char *b_data;			/* pointer to data within the page */
 	/**
@@ -89,6 +93,7 @@ struct buffer_head {
 	/**
 	 * 指向IO完成方法数据的指针
 	 * 对于JBD来说，是管理该缓冲区的journal_head
+	 供b_end_io使用的数据
 	 */
  	void *b_private;		/* reserved for b_end_io */
 	/**

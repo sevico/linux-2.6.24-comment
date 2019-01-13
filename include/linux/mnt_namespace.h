@@ -7,8 +7,11 @@
 #include <linux/nsproxy.h>
 
 struct mnt_namespace {
+//引用计数，共享该命名空间的进程数
 	atomic_t		count;
+//该命名空间根目录的vfsmount对象
 	struct vfsmount *	root;
+//已安装文件系统的vfsmount链表，链接属于这个命名空间的所有已安装文件系统
 	struct list_head	list;
 	wait_queue_head_t poll;
 	int event;

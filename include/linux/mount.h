@@ -38,6 +38,9 @@ struct mnt_namespace;
 struct vfsmount {
 	/**
 		 * 用于散列表链表的指针。
+		 内核使用了mount_hashtable（定义在文件fs/namespace.c）对vfsmount结构
+进行管理，mount_hashtable是由list_head组成的链表。一个vfsmount一经
+创建，就会通过它的mnt_hash挂入mount_hashtable中对应哈希值的链表里
 	*/
 	struct list_head mnt_hash;
 	/**
@@ -46,6 +49,7 @@ struct vfsmount {
 	struct vfsmount *mnt_parent;	/* fs we are mounted on */
 	/**
 	 * 安装点目录节点。
+	 安装点的dentry,mnt_mountpoint和mnt_parent分别是父文件系统的dentry和vfsmount
 	 */
 	struct dentry *mnt_mountpoint;	/* dentry of mountpoint */
 	/**
@@ -57,7 +61,13 @@ struct vfsmount {
 	 */
 	struct super_block *mnt_sb;	/* pointer to superblock */
 	/**
-	 * 子挂载点链表表头
+	 * 子挂载点链表表头	 
+	 mnt_mounts是子文件系统链表的头，同一父文件系统的所有文件系统通过
+	 mnt_child形成一个链表。比如，系统的文件系统是Ext3，在/mnt/hda、
+	 /mnt/usb目录下分别安装了文件系统a、b，这样系统就为新安装的a、b分配
+	 vfsmount结构，并将它们的mnt_parent指向该Ext3文件系统的vfsmount结构，
+	 a和b通过mnt_child挂入该Ext3文件系统的mnt_mounts链表。next_mnt()
+	 实现了对mount树的遍历
 	 */
 	struct list_head mnt_mounts;	/* list of children, anchored here */
 	/**
@@ -65,23 +75,28 @@ struct vfsmount {
 	 */
 	struct list_head mnt_child;	/* and going through their mnt_child */
 	/**
-	 * mount标志
+	 * mount标志	 
+	 mount时指定的标志，可用的标志定义在include/linux/mount.h文件
 	 */
 	int mnt_flags;
 	/* 4 bytes hole on 64bits arches */
 	/**
-	 * 设备文件名。
+	 * 设备文件名。	 
+	 设备的文件名，用于文件/proc/mounts（包含了所有已经安装的文件系统）
 	 */
 	char *mnt_devname;		/* Name of device e.g. /dev/dsk/hda1 */
+	//所有己安装的文件系统的vfsmount通过mnt_list链接在一起
 	struct list_head mnt_list;
 	/**
 	 * 如果文件系统标记为过期，就设置这个标志。
 	 */
 	struct list_head mnt_expire;	/* link in fs-specific expiry list */
+	//以下4个字段用于实现Shared subtree
 	struct list_head mnt_share;	/* circular list of shared mounts */
 	struct list_head mnt_slave_list;/* list of slave mounts */
 	struct list_head mnt_slave;	/* slave list entry */
 	struct vfsmount *mnt_master;	/* slave is on master->mnt_slave_list */
+	//所在的namespace
 	struct mnt_namespace *mnt_ns;	/* containing namespace */
 	/*
 	 * We put mnt_count & mnt_expiry_mark at the end of struct vfsmount
