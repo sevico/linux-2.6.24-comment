@@ -73,6 +73,7 @@ struct kobject {
 	struct kref		kref;
 	/**
 	 * 用于将kobject插入某个链表。
+	 挂接到所在kset中去的单元
 	 */
 	struct list_head	entry;
 	/**

@@ -62,7 +62,9 @@ struct bus_type {
 	struct kset		drivers;
 	//所有挂接在该总线上的设备集合
 	struct kset		devices;
+	//该总线上的设备链表
 	struct klist		klist_devices;
+	//该总线上的驱动程序链表
 	struct klist		klist_drivers;
 
 	struct blocking_notifier_head bus_notifier;
@@ -154,6 +156,7 @@ struct device_driver {
 	const char		* name;
 	/**
 	 * 指向总线描述符的指针。
+	 该驱动所管理的设备挂接的总线类型
 	 */
 	struct bus_type		* bus;
 	//内嵌kobject对象
@@ -168,7 +171,7 @@ struct device_driver {
 	struct module		* owner;
 	const char 		* mod_name;	/* used for built-in modules */
 	struct module_kobject	* mkobj;
-
+	//查询某个特定设备是否存在及驱动是否可以使用它的函数
 	int	(*probe)	(struct device * dev);
 	/**
 	 * 移走设备的方法（检测设备驱动程序是否可以控制该设备）
