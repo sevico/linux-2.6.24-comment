@@ -69,7 +69,9 @@ struct usb_host_endpoint {
 };
 
 /* host-side wrapper for one interface setting's parsed descriptors */
+//表示接口设置
 struct usb_host_interface {
+//接口描述符
 	struct usb_interface_descriptor	desc;
 
 	/* array of desc.bNumEndpoint endpoints associated with this
@@ -144,25 +146,33 @@ enum usb_interface_condition {
 struct usb_interface {
 	/* array of alternate settings for this interface,
 	 * stored in no particular order */
+	 //可选的设置
 	struct usb_host_interface *altsetting;
-
+	//正在使用的设置
 	struct usb_host_interface *cur_altsetting;	/* the currently
 					 * active alternate setting */
+	//这个接口具有可选设置的数量
 	unsigned num_altsetting;	/* number of alternate settings */
 
 	/* If there is an interface association descriptor then it will list
 	 * the associated interfaces */
 	struct usb_interface_assoc_descriptor *intf_assoc;
-
+	//分配给设备的次设备号
+	//不使用USB_MAJOR做主设备号时，minor可忽略
 	int minor;			/* minor number this interface is
 					 * bound to */
+	//接口和驱动的绑定状态
 	enum usb_interface_condition condition;		/* state of binding */
+	//接口是不是处于挂起状态
 	unsigned is_active:1;		/* the interface is not suspended */
 	unsigned sysfs_files_created:1;	/* the sysfs attributes exist */
+	//是否打开远程唤醒功能
 	unsigned needs_remote_wakeup:1;	/* driver requires remote wakeup */
-
+	//模型内嵌的device
 	struct device dev;		/* interface specific device info */
+	//指向在usb_register_dev中创建的 USB class device
 	struct device *usb_dev;		/* pointer to the usb class's device, if any */
+	//当它为0时，允许autosuspend
 	int pm_usage_cnt;		/* usage counter for autosuspend */
 };
 #define	to_usb_interface(d) container_of(d, struct usb_interface, dev)

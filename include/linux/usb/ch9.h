@@ -293,9 +293,11 @@ struct usb_string_descriptor {
 
 /* USB_DT_INTERFACE: Interface descriptor */
 struct usb_interface_descriptor {
+//描述符的字节长度
 	__u8  bLength;
+//描述符的类型
 	__u8  bDescriptorType;
-
+//接口号
 	__u8  bInterfaceNumber;
 	__u8  bAlternateSetting;
 	__u8  bNumEndpoints;

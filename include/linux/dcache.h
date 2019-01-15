@@ -148,7 +148,7 @@ d_alias字段挂入该inode的i_dentry链表中
 	struct dentry_operations *d_op;
 	   /* 文件的超级块对象 */
 	struct super_block *d_sb;	/* The root of the dentry tree */
-	   /* 依赖于文件系统的数据 */
+	   /* 依赖于文件系统的数据 在sysfs中指向sysfs_dirent*/
 	void *d_fsdata;			/* fs-specific data */
 #ifdef CONFIG_PROFILING
 	struct dcookie_struct *d_cookie; /* cookie, if any 指向内核配置文件使用的数据结构的指针*/

@@ -309,15 +309,21 @@ struct class_device {
 	struct list_head	node;
 
 	struct kobject		kobj;
+	//所属的类
 	struct class		* class;	/* required */
+	//设备号
 	dev_t			devt;		/* dev_t, creates the sysfs "dev" */
+	//如果存在，创建到/sys/devices相应入口的符号链接
 	struct device		* dev;		/* not necessary, but nice to have */
+	//类私有数据
 	void			* class_data;	/* class-specific data */
+	//父设备
 	struct class_device	*parent;	/* parent of this child device, if there is one */
 	struct attribute_group  ** groups;	/* optional groups */
-
+	//释放对应类实际设备的方法
 	void	(*release)(struct class_device *dev);
 	int	(*uevent)(struct class_device *dev, struct kobj_uevent_env *env);
+	//类唯一标志，在sysfs显示的设备名
 	char	class_id[BUS_ID_SIZE];	/* unique to this class */
 };
 

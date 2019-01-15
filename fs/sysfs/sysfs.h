@@ -39,6 +39,7 @@ struct sysfs_elem_bin_attr {
  * requires s_active reference.
  */
 struct sysfs_dirent {
+//引用计数
 	atomic_t		s_count;
 	atomic_t		s_active;
 	struct sysfs_dirent	*s_parent;
