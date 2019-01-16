@@ -70,7 +70,7 @@ struct dentry_stat_t dentry_stat = {
 static void __d_free(struct dentry *dentry)
 {
 	if (dname_external(dentry))
-		kfree(dentry->d_name.name);
+		kfree(dentry->d_name.name);//判断是否为d_name分配了内存
 	kmem_cache_free(dentry_cache, dentry); 
 }
 
@@ -87,7 +87,7 @@ static void d_callback(struct rcu_head *head)
 static void d_free(struct dentry *dentry)
 {
 	if (dentry->d_op && dentry->d_op->d_release)
-		dentry->d_op->d_release(dentry);
+		dentry->d_op->d_release(dentry);//主要用于释放dentry->fsdata数据
 	/* if dentry was never inserted into hash, immediate free is OK */
 	if (dentry->d_hash.pprev == NULL)
 		__d_free(dentry);
@@ -133,12 +133,12 @@ static struct dentry *d_kill(struct dentry *dentry)
 {
 	struct dentry *parent;
 
-	list_del(&dentry->d_u.d_child);
+	list_del(&dentry->d_u.d_child);//从parent的children list中删除
 	dentry_stat.nr_dentry--;	/* For d_free, below */
 	/*drops the locks, at that point nobody can reach this dentry */
-	dentry_iput(dentry);
-	parent = dentry->d_parent;
-	d_free(dentry);
+	dentry_iput(dentry);//release the dentry's inode
+	parent = dentry->d_parent;//根节点d_parent=NULL
+	d_free(dentry);//释放占用的内存空间给dentry cache slab
 	return dentry == parent ? NULL : parent;
 }
 
@@ -193,13 +193,13 @@ repeat:
 	 * AV: ->d_delete() is _NOT_ allowed to block now.
 	 */
 	if (dentry->d_op && dentry->d_op->d_delete) {
-		if (dentry->d_op->d_delete(dentry))
+		if (dentry->d_op->d_delete(dentry))//返回值非0（执行出错）
 			goto unhash_it;
 	}
 	/* Unreachable? Get rid of it */
- 	if (d_unhashed(dentry))
+ 	if (d_unhashed(dentry))//不在hash表中
 		goto kill_it;
-  	if (list_empty(&dentry->d_lru)) {
+  	if (list_empty(&dentry->d_lru)) {//在hash链表中，则将其移植到lru链表的首部
   		dentry->d_flags |= DCACHE_REFERENCED;
   		list_add(&dentry->d_lru, &dentry_unused);
   		dentry_stat.nr_unused++;
@@ -209,18 +209,18 @@ repeat:
 	return;
 
 unhash_it:
-	__d_drop(dentry);
+	__d_drop(dentry);//unhash from the dentry hash
 kill_it:
 	/* If dentry was on d_lru list
 	 * delete it from there
 	 */
 	if (!list_empty(&dentry->d_lru)) {
-		list_del(&dentry->d_lru);
+		list_del(&dentry->d_lru);//delete from the d_lru list
 		dentry_stat.nr_unused--;
 	}
-	dentry = d_kill(dentry);
+	dentry = d_kill(dentry);;//kill the dentry and return the parent（如果dentry->d_parent指向自身，则代表fs的根目录，于是d_kill返回NULL）
 	if (dentry)
-		goto repeat;
+		goto repeat;//对parent进行递归处理
 }
 
 /**
@@ -234,7 +234,7 @@ kill_it:
  *
  * no dcache lock.
  */
- 
+ //使一个dcache中的dentry对象无效。该函数的核心就是要将指定的dentry对象从哈希链表中摘除
 int d_invalidate(struct dentry * dentry)
 {
 	/*
@@ -340,7 +340,7 @@ static struct dentry * __d_find_alias(struct inode *inode, int want_discon)
 		__dget_locked(discon_alias);
 	return discon_alias;
 }
-
+//指定inode对象找到一个位于哈希链表中的、且在该索引节点的别名链表i_dentry中的dentry对象。
 struct dentry * d_find_alias(struct inode *inode)
 {
 	struct dentry *de = NULL;
@@ -357,6 +357,7 @@ struct dentry * d_find_alias(struct inode *inode)
  *	Try to kill dentries associated with this inode.
  * WARNING: you must own a reference to inode.
  */
+ //释放指定inode对象的别名链表i_dentry中未使用的dentry对象
 void d_prune_aliases(struct inode *inode)
 {
 	struct dentry *dentry;
@@ -390,8 +391,8 @@ restart:
  */
 static void prune_one_dentry(struct dentry * dentry)
 {
-	__d_drop(dentry);
-	dentry = d_kill(dentry);
+	__d_drop(dentry);//将这个dentry对象从哈希链表中摘除
+	dentry = d_kill(dentry);//将这个dentry对象从其父目录对象的d_subdirs链表中摘除
 
 	/*
 	 * Prune ancestors.  Locking is simpler than in dput(),
@@ -409,8 +410,11 @@ static void prune_one_dentry(struct dentry * dentry)
 			dentry_stat.nr_unused--;
 		}
 		__d_drop(dentry);
+		//用 dentry_iput()函数释放对相应inode对象的引用；
+		//用d_free()释放这个dentry对象
 		dentry = d_kill(dentry);
 		spin_lock(&dcache_lock);
+		//循环父对象
 	}
 }
 
@@ -731,7 +735,7 @@ void shrink_dcache_for_umount(struct super_block *sb)
  * Return true if the parent or its subdirectories contain
  * a mount point
  */
- 
+ //查看在参数parent指定的部分目录树中是否至少有一个安装点
 int have_submounts(struct dentry *parent)
 {
 	struct dentry *this_parent = parent;
@@ -1080,6 +1084,8 @@ struct dentry * d_alloc_root(struct inode * root_inode)
 		res = d_alloc(NULL, &name);
 		if (res) {
 			res->d_sb = root_inode->i_sb;
+			//将所分配的dentry对象的d_parent指针设置为指向自身。
+			//NOTE！这一点是判断一个dentry对象是否是一个fs的根目录的唯一准则（include／linux／dcache.h）：＃define IS_ROOT（x）（（x）＝＝（x）－>d_parent）
 			res->d_parent = res;
 			d_instantiate(res, root_inode);
 		}
@@ -1234,7 +1240,7 @@ struct dentry *d_splice_alias(struct inode *inode, struct dentry *dentry)
  * d_lookup() is protected against the concurrent renames in some unrelated
  * directory using the seqlockt_t rename_lock.
  */
-
+//在参数parent指定的父目录中查找名字为name的目录项
 struct dentry * d_lookup(struct dentry * parent, struct qstr * name)
 {
 	struct dentry * dentry = NULL;
@@ -1345,7 +1351,7 @@ out:
  * This is used by ncpfs in its readdir implementation.
  * Zero is returned in the dentry is invalid.
  */
- 
+ //验证一个dentry对象的有效性
 int d_validate(struct dentry *dentry, struct dentry *dparent)
 {
 	struct hlist_head *base;
@@ -1395,7 +1401,7 @@ out:
  * Turn the dentry into a negative dentry if possible, otherwise
  * remove it from the hash queues so it can be deleted later
  */
- 
+ //删除一个dentry对象。实际上是将这个dentry对象转变为negative状态或unused状态
 void d_delete(struct dentry * dentry)
 {
 	int isdir = 0;
@@ -1591,7 +1597,7 @@ already_unhashed:
  * Update the dcache to reflect the move of a file name. Negative
  * dcache entries should not be moved in this way.
  */
-
+//移动一个dentry对象
 void d_move(struct dentry * dentry, struct dentry * target)
 {
 	spin_lock(&dcache_lock);
@@ -1779,6 +1785,7 @@ shouldnt_be_hashed:
  *
  * "buflen" should be positive. Caller holds the dcache_lock.
  */
+ //得到一个dentry对象的全路径名
 static char * __d_path( struct dentry *dentry, struct vfsmount *vfsmnt,
 			struct dentry *root, struct vfsmount *rootmnt,
 			char *buffer, int buflen)
@@ -1981,7 +1988,7 @@ out:
  * Returns 0 otherwise.
  * Caller must ensure that "new_dentry" is pinned before calling is_subdir()
  */
-  
+ //判断一个dentry对象是否是另一个dentry对象的子孙
 int is_subdir(struct dentry * new_dentry, struct dentry * old_dentry)
 {
 	int result;
@@ -2057,7 +2064,7 @@ resume:
  * filesystems using synthetic inode numbers, and is necessary
  * to keep getcwd() working.
  */
- 
+ //在父目录dir中，查找是否存在参数name指定的名字的目录项，并返回对应inode的索引节点
 ino_t find_inode_number(struct dentry *dir, struct qstr *name)
 {
 	struct dentry * dentry;

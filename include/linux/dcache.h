@@ -391,6 +391,11 @@ extern char * d_path(struct dentry *, struct vfsmount *, char *, int);
 static inline struct dentry *dget(struct dentry *dentry)
 {
 	if (dentry) {
+		//这里可知，对于dentry引用计数为0的dentry决不能使用
+		//dget，而应使用dget_locked。因为：引用一个d_count＝0的dentry对象，将使该dentry对象从unused状态
+		//转变为inuse状态，该dentry状态也必须从LRU链表中脱离，而在操作dcache链表时是必须先持有自旋锁
+		//dcache_lock的。函数dget()并不对调用者由任何调用假设，相反，dget_locked()函数则假定调用者在调
+		//用它之前已经持有自旋锁dentry_lock。
 		BUG_ON(!atomic_read(&dentry->d_count));
 		atomic_inc(&dentry->d_count);
 	}

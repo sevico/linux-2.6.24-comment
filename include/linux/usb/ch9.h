@@ -297,13 +297,16 @@ struct usb_interface_descriptor {
 	__u8  bLength;
 //描述符的类型
 	__u8  bDescriptorType;
-//接口号
+//接口号。每个配置可以包含多个接口，这个值就是它们的索引值
 	__u8  bInterfaceNumber;
+//接口使用的是哪个可选设置
 	__u8  bAlternateSetting;
+//接口拥有的端点数量，不包括必须拥有的端点0
 	__u8  bNumEndpoints;
 	__u8  bInterfaceClass;
 	__u8  bInterfaceSubClass;
 	__u8  bInterfaceProtocol;
+	//接口对应的字符串描述符的索引值
 	__u8  iInterface;
 } __attribute__ ((packed));
 

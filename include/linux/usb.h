@@ -58,6 +58,7 @@ struct ep_device;
  * descriptor within an active interface in a given USB configuration.
  */
 struct usb_host_endpoint {
+//端点描述符
 	struct usb_endpoint_descriptor	desc;
 	struct list_head		urb_list;
 	void				*hcpriv;
@@ -77,9 +78,11 @@ struct usb_host_interface {
 	/* array of desc.bNumEndpoint endpoints associated with this
 	 * interface setting.  these will be in no particular order.
 	 */
+	 //bi表示这个设置所用到的端点
 	struct usb_host_endpoint *endpoint;
-
+	//从设备里取出来的字符串描述信息
 	char *string;		/* iInterface string, if present */
+	//厂商为设备定义的字符串描述符
 	unsigned char *extra;   /* Extra descriptors */
 	int extralen;
 };
