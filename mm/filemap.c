@@ -1530,9 +1530,9 @@ static struct page *__read_cache_page(struct address_space *mapping,
 	struct page *page;
 	int err;
 repeat:
-	page = find_get_page(mapping, index);
+	page = find_get_page(mapping, index);//在cache中查找page
 	if (!page) {
-		page = page_cache_alloc_cold(mapping);
+		page = page_cache_alloc_cold(mapping);//没有找到的话，建立新的page cache
 		if (!page)
 			return ERR_PTR(-ENOMEM);
 		err = add_to_page_cache_lru(page, mapping, index, GFP_KERNEL);
@@ -1543,7 +1543,7 @@ repeat:
 			/* Presumably ENOMEM for radix tree node */
 			return ERR_PTR(err);
 		}
-		err = filler(data, page);
+		err = filler(data, page); //并且通过回调函数ext2_readpage从物理设备中读取数据。该函数
 		if (err < 0) {
 			page_cache_release(page);
 			page = ERR_PTR(err);

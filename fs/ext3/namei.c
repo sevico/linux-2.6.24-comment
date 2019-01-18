@@ -2223,7 +2223,7 @@ static int ext3_link (struct dentry * old_dentry,
 	handle_t *handle;
 	struct inode *inode = old_dentry->d_inode;
 	int err, retries = 0;
-
+	/* 如果文件上的链接数过多，返回Too many links错误 */
 	if (inode->i_nlink >= EXT3_LINK_MAX)
 		return -EMLINK;
 	/*

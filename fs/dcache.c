@@ -1411,7 +1411,7 @@ void d_delete(struct dentry * dentry)
 	spin_lock(&dcache_lock);
 	spin_lock(&dentry->d_lock);
 	isdir = S_ISDIR(dentry->d_inode->i_mode);
-	if (atomic_read(&dentry->d_count) == 1) {
+	if (atomic_read(&dentry->d_count) == 1) {//该情况下,turn the dentry into a negtive dentry
 		dentry_iput(dentry);
 		fsnotify_nameremove(dentry, isdir);
 
@@ -1419,6 +1419,7 @@ void d_delete(struct dentry * dentry)
 		dentry->d_flags &= ~DCACHE_INOTIFY_PARENT_WATCHED;
 		return;
 	}
+	//others used the dentry or inode currently,so just unhash it and waiting for it to be deleted later when no users
 
 	if (!d_unhashed(dentry))
 		__d_drop(dentry);

@@ -836,22 +836,24 @@ static int attach_recursive_mnt(struct vfsmount *source_mnt,
 	struct vfsmount *dest_mnt = nd->mnt;
 	struct dentry *dest_dentry = nd->dentry;
 	struct vfsmount *child, *p;
-
+	/*参数检查，是不是合理的，比如要挂载点在目的点的下边*/
 	if (propagate_mnt(dest_mnt, dest_dentry, source_mnt, &tree_list))
 		return -EINVAL;
-
+	/*是否可分享*/
 	if (IS_MNT_SHARED(dest_mnt)) {
 		for (p = source_mnt; p; p = next_mnt(p, source_mnt))
 			set_mnt_shared(p);
 	}
-
+	/*锁住vfsmount结构体，我们穿入的parent_nd是NULL所以执行else的*/
 	spin_lock(&vfsmount_lock);
 	if (parent_nd) {
 		detach_mnt(source_mnt, parent_nd);
 		attach_mnt(source_mnt, nd);
 		touch_mnt_namespace(current->nsproxy->mnt_ns);
 	} else {
+		/*dest_dentry的d_mounted++，标记已经挂载，source_mnt结构体填充*/
 		mnt_set_mountpoint(dest_mnt, dest_dentry, source_mnt);
+		/*把新的vfsmount提交到全局hash表*/
 		commit_tree(source_mnt);
 	}
 
@@ -865,25 +867,29 @@ static int attach_recursive_mnt(struct vfsmount *source_mnt,
 
 static int graft_tree(struct vfsmount *mnt, struct nameidata *nd)
 {
+	/*检查超级块可不可以挂载*/
 	int err;
 	if (mnt->mnt_sb->s_flags & MS_NOUSER)
 		return -EINVAL;
-
+	/*检查两个文件系统是不是一致的*/
 	if (S_ISDIR(nd->dentry->d_inode->i_mode) !=
 	      S_ISDIR(mnt->mnt_root->d_inode->i_mode))
 		return -ENOTDIR;
 
 	err = -ENOENT;
 	mutex_lock(&nd->dentry->d_inode->i_mutex);
+	/*dead，死的也不行*/
 	if (IS_DEADDIR(nd->dentry->d_inode))
 		goto out_unlock;
-
+	/*安全操作*/
 	err = security_sb_check_sb(mnt, nd);
 	if (err)
 		goto out_unlock;
 
 	err = -ENOENT;
+	/*如果挂载点是根目录或者在缓存里边*/
 	if (IS_ROOT(nd->dentry) || !d_unhashed(nd->dentry))
+		/*挂载操作*/
 		err = attach_recursive_mnt(mnt, nd, NULL);
 out_unlock:
 	mutex_unlock(&nd->dentry->d_inode->i_mutex);
@@ -1083,19 +1089,23 @@ out:
 static int do_new_mount(struct nameidata *nd, char *type, int flags,
 			int mnt_flags, char *name, void *data)
 {
-	struct vfsmount *mnt;
+	/* vfsmount结构体是挂载最重要的结构体 */
 
+	struct vfsmount *mnt;
+	/* 参数检查 */
 	if (!type || !memchr(type, 0, PAGE_SIZE))
 		return -EINVAL;
 
 	/* we need capabilities... */
+	/* 如果没有权限，就结束函数 */
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
+	/* 为第一次挂载创建dentry，root的inode，如果已经存在的话，就返回已经存在的 */
 
 	mnt = do_kern_mount(type, flags, name, data);
 	if (IS_ERR(mnt))
 		return PTR_ERR(mnt);
-
+	/* 执行挂载到具体的挂载点 */
 	return do_add_mount(mnt, nd, mnt_flags, NULL);
 }
 
@@ -1106,30 +1116,35 @@ static int do_new_mount(struct nameidata *nd, char *type, int flags,
 int do_add_mount(struct vfsmount *newmnt, struct nameidata *nd,
 		 int mnt_flags, struct list_head *fslist)
 {
-	int err;
+	/* 所有的参数都被放在了nameidata里 */
 
+	int err;
+	/* 锁住内核的信号量，保持唯一性访问 */
 	down_write(&namespace_sem);
 	/* Something was mounted here while we slept */
+	/* 看看目录挂载点是不是已经被挂载了，如果被挂载了，就再次寻找dentry和mount结构体 */
 	while (d_mountpoint(nd->dentry) && follow_down(&nd->mnt, &nd->dentry))
 		;
 	err = -EINVAL;
+	/* 如果真的已经被挂载，就返回错误 */
 	if (!check_mnt(nd->mnt))
 		goto unlock;
 
 	/* Refuse the same filesystem on the same mount point */
+	/* 如果在一个挂载点是同一个文件系统的话就返回错误 */
 	err = -EBUSY;
 	if (nd->mnt->mnt_sb == newmnt->mnt_sb &&
 	    nd->mnt->mnt_root == nd->dentry)
 		goto unlock;
-
+	/* 如果根的inode是软连接，就返回错误 */
 	err = -EINVAL;
 	if (S_ISLNK(newmnt->mnt_root->d_inode->i_mode))
 		goto unlock;
-
+	/*  把要挂载的dentry和挂载点的dentry结合，主要的工作函数*/
 	newmnt->mnt_flags = mnt_flags;
 	if ((err = graft_tree(newmnt, nd)))
 		goto unlock;
-
+	/* 记录在文件系统链表上 */
 	if (fslist) {
 		/* add to the specified expiration list */
 		spin_lock(&vfsmount_lock);
@@ -1403,20 +1418,22 @@ long do_mount(char *dev_name, char *dir_name, char *type_page,
 	int mnt_flags = 0;
 
 	/* Discard magic */
+	/* 不用的magic就抛弃 */
 	if ((flags & MS_MGC_MSK) == MS_MGC_VAL)
 		flags &= ~MS_MGC_MSK;
 
 	/* Basic sanity checks */
-
+	/*参数检查*/
 	if (!dir_name || !*dir_name || !memchr(dir_name, 0, PAGE_SIZE))
 		return -EINVAL;
 	if (dev_name && !memchr(dev_name, 0, PAGE_SIZE))
 		return -EINVAL;
-
+	/* 把页的最后一个字节置为零 */
 	if (data_page)
 		((char *)data_page)[PAGE_SIZE - 1] = 0;
 
 	/* Separate the per-mountpoint flags */
+	/* 把传入的flags分解到mnt_flags上 */
 	if (flags & MS_NOSUID)
 		mnt_flags |= MNT_NOSUID;
 	if (flags & MS_NODEV)
@@ -1434,13 +1451,16 @@ long do_mount(char *dev_name, char *dir_name, char *type_page,
 		   MS_NOATIME | MS_NODIRATIME | MS_RELATIME| MS_KERNMOUNT);
 
 	/* ... and get the mountpoint */
+	/* 从参数中寻找到挂载点，并且检查这个目录是否存在合法 */
 	retval = path_lookup(dir_name, LOOKUP_FOLLOW, &nd);
 	if (retval)
 		return retval;
+	/* 安全操作 */
 
 	retval = security_sb_mount(dev_name, &nd, type_page, flags, data_page);
 	if (retval)
 		goto dput_out;
+	/* 如果不是第一次挂载的话，就执行do_remount */
 
 	if (flags & MS_REMOUNT)
 		retval = do_remount(&nd, flags & ~MS_REMOUNT, mnt_flags,
@@ -1451,7 +1471,7 @@ long do_mount(char *dev_name, char *dir_name, char *type_page,
 		retval = do_change_type(&nd, flags);
 	else if (flags & MS_MOVE)
 		retval = do_move_mount(&nd, dev_name);
-	else
+	else/* 第一次挂载 */
 		retval = do_new_mount(&nd, type_page, flags, mnt_flags,
 				      dev_name, data_page);
 dput_out:
@@ -1546,6 +1566,7 @@ struct mnt_namespace *copy_mnt_ns(unsigned long flags, struct mnt_namespace *ns,
 	put_mnt_ns(ns);
 	return new_ns;
 }
+/*传入的dev_name是mount的设备名，dir_name是挂载点，type是文件系统类型，flags是标记，data是私有数据*/
 
 asmlinkage long sys_mount(char __user * dev_name, char __user * dir_name,
 			  char __user * type, unsigned long flags,
@@ -1556,27 +1577,33 @@ asmlinkage long sys_mount(char __user * dev_name, char __user * dir_name,
 	unsigned long type_page;
 	unsigned long dev_page;
 	char *dir_page;
+	/*type是字符串的文件系统名字，比如"ext4"这样的字符串，这个函数就是把挂载的选项字符串复制到内核里的一块地方*/
 
 	retval = copy_mount_options(type, &type_page);
 	if (retval < 0)
 		return retval;
+	/*把用户空间传来的dir_name参数复制到内核的一块内存里边*/
 
 	dir_page = getname(dir_name);
 	retval = PTR_ERR(dir_page);
 	if (IS_ERR(dir_page))
 		goto out1;
-
+	/*把dev_name复制到内核的一个空闲页上*/
 	retval = copy_mount_options(dev_name, &dev_page);
 	if (retval < 0)
 		goto out2;
+	/*把data数据复制到内核的一个空闲页上*/
 
 	retval = copy_mount_options(data, &data_page);
 	if (retval < 0)
 		goto out3;
+	/*锁住内核，防止其他进程抢占*/
 
 	lock_kernel();
+	/*进入mount的主要工作*/
 	retval = do_mount((char *)dev_page, dir_page, (char *)type_page,
 			  flags, (void *)data_page);
+	/*释放锁，并释放内存*/
 	unlock_kernel();
 	free_page(data_page);
 
