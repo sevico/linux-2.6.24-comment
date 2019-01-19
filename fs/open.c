@@ -478,13 +478,15 @@ asmlinkage long sys_access(const char __user *filename, int mode)
 
 asmlinkage long sys_chdir(const char __user * filename)
 {
+	/*路径名查找函数*/
 	struct nameidata nd;
 	int error;
-
+	/*之前我们分析过，根据得到的文件名，找到对应的dentry和mnt结构体放入nameidata结构体里边*/
 	error = __user_walk(filename,
 			    LOOKUP_FOLLOW|LOOKUP_DIRECTORY|LOOKUP_CHDIR, &nd);
 	if (error)
 		goto out;
+	/*vfs层权限检查*/
 
 	error = vfs_permission(&nd, MAY_EXEC);
 	if (error)
@@ -819,12 +821,13 @@ static struct file *do_filp_open(int dfd, const char *filename, int flags,
 {
 	int namei_flags, error;
 	struct nameidata nd;
-
+	/*内外标记不一样*/
 	namei_flags = flags;
 	if ((namei_flags+1) & O_ACCMODE)
 		namei_flags++;
-
+	/*顺着文件名打开操作*/
 	error = open_namei(dfd, filename, namei_flags, mode, &nd);
+	/*根据得到的文件数据，填充file结构体*/
 	if (!error)
 		return nameidata_to_filp(&nd, flags);
 
@@ -1029,14 +1032,18 @@ EXPORT_SYMBOL(fd_install);
 
 long do_sys_open(int dfd, const char __user *filename, int flags, int mode)
 {
+	/*把用户空间的存在内存的文件名字符串复制到内核空间*/
 	char *tmp = getname(filename);
 	int fd = PTR_ERR(tmp);
 
 	if (!IS_ERR(tmp)) {
+		/*寻找一个暂时没用的文件描述符，或者没有的话返回错误*/
 		fd = get_unused_fd_flags(flags);
 		if (fd >= 0) {
+			/*如果找到的话，就执行打开操作*/
 			struct file *f = do_filp_open(dfd, tmp, flags, mode);
 			if (IS_ERR(f)) {
+				/*打开失败，就释放文件描述符*/
 				put_unused_fd(fd);
 				fd = PTR_ERR(f);
 			} else {
@@ -1052,12 +1059,14 @@ long do_sys_open(int dfd, const char __user *filename, int flags, int mode)
 asmlinkage long sys_open(const char __user *filename, int flags, int mode)
 {
 	long ret;
+	/*检查内核是不是支持大文件，如果是大文件的话就对flags标记对应的标记位置位*/
 
 	if (force_o_largefile())
 		flags |= O_LARGEFILE;
-
+	/*封装的操作*/
 	ret = do_sys_open(AT_FDCWD, filename, flags, mode);
 	/* avoid REGPARM breakage on x86: */
+	/* 禁止编译器尾部优化 */
 	prevent_tail_call(ret);
 	return ret;
 }

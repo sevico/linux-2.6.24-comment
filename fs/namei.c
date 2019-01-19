@@ -179,11 +179,17 @@ EXPORT_SYMBOL(putname);
  * for filesystem access without changing the "normal" uids which
  * are used for other things..
  */
+ /**
+ * generic_permission  -  在POSIX系列操作系统检察权限
+ * @inode:	检察权限需要的inode
+ * @mask:	权限检查(%MAY_READ, %MAY_WRITE, %MAY_EXEC)
+ * @check_acl:	回调函数，我们传入的是NULL，不必考虑
+ */
 int generic_permission(struct inode *inode, int mask,
 		int (*check_acl)(struct inode *inode, int mask))
 {
 	umode_t			mode = inode->i_mode;
-
+	/*所有者的权限*/
 	if (current->fsuid == inode->i_uid)
 		mode >>= 6;
 	else {
@@ -194,7 +200,7 @@ int generic_permission(struct inode *inode, int mask,
 			else if (error != -EAGAIN)
 				return error;
 		}
-
+		/*如果对于组ID检查成功，就右移三位*/
 		if (in_group_p(inode->i_gid))
 			mode >>= 3;
 	}
@@ -202,6 +208,7 @@ int generic_permission(struct inode *inode, int mask,
 	/*
 	 * If the DACs are ok we don't need any capability check.
 	 */
+	 /*自主控制位检查*/
 	if (((mode & mask & (MAY_READ|MAY_WRITE|MAY_EXEC)) == mask))
 		return 0;
 
@@ -210,6 +217,7 @@ int generic_permission(struct inode *inode, int mask,
 	 * Read/write DACs are always overridable.
 	 * Executable DACs are overridable if at least one exec bit is set.
 	 */
+	 /*DAC权限检查*/
 	if (!(mask & MAY_EXEC) ||
 	    (inode->i_mode & S_IXUGO) || S_ISDIR(inode->i_mode))
 		if (capable(CAP_DAC_OVERRIDE))
@@ -234,11 +242,13 @@ int permission(struct inode *inode, int mask, struct nameidata *nd)
 		mnt = nd->mnt;
 
 	if (mask & MAY_WRITE) {
+		/*得到文件的权限*/
 		umode_t mode = inode->i_mode;
 
 		/*
 		 * Nobody gets write access to a read-only fs.
 		 */
+		 /*只读文件系统不可以写入*/
 		if (IS_RDONLY(inode) &&
 		    (S_ISREG(mode) || S_ISDIR(mode) || S_ISLNK(mode)))
 			return -EROFS;
@@ -246,9 +256,11 @@ int permission(struct inode *inode, int mask, struct nameidata *nd)
 		/*
 		 * Nobody gets write access to an immutable file.
 		 */
+		 /*不可修改文件不能写*/
 		if (IS_IMMUTABLE(inode))
 			return -EACCES;
 	}
+	/*对于普通文件的MAY_EXEC需要可执行权限，如果文件系统不可以执行，就返回错误*/
 
 	if ((mask & MAY_EXEC) && S_ISREG(inode->i_mode)) {
 		/*
@@ -260,7 +272,9 @@ int permission(struct inode *inode, int mask, struct nameidata *nd)
 	}
 
 	/* Ordinary permission routines do not understand MAY_APPEND. */
+	/* 一般的权限程序不理解MAY_APPEND*/
 	submask = mask & ~MAY_APPEND;
+	/*如果inode的函数操作结构体有permission函数，就调用这个函数*/
 	if (inode->i_op && inode->i_op->permission) {
 		retval = inode->i_op->permission(inode, submask, nd);
 		if (!retval) {
@@ -276,6 +290,7 @@ int permission(struct inode *inode, int mask, struct nameidata *nd)
 				return -EACCES;
 		}
 	} else {
+	/*否则就调用通用的权限检查函数*/
 		retval = generic_permission(inode, submask, NULL);
 	}
 	if (retval)
@@ -557,15 +572,17 @@ static __always_inline int __vfs_follow_link(struct nameidata *nd, const char *l
 {
 	int res = 0;
 	char *name;
+	/*检查传入的参数*/
 	if (IS_ERR(link))
 		goto fail;
-
+	/*如果是从根目录开始的路径，释放path，然后调用walk_init_root*/
 	if (*link == '/') {
 		path_release(nd);
 		if (!walk_init_root(link, nd))
 			/* weird __emul_prefix() stuff did it */
 			goto out;
 	}
+	/*获得文件对应的inode*/
 	res = link_path_walk(link, nd);
 out:
 	if (nd->depth || res || nd->last_type!=LAST_NORM)
@@ -1574,19 +1591,23 @@ void unlock_rename(struct dentry *p1, struct dentry *p2)
 int vfs_create(struct inode *dir, struct dentry *dentry, int mode,
 		struct nameidata *nd)
 {
+	/*打开前的权限检查*/
 	int error = may_create(dir, dentry, nd);
 
 	if (error)
 		return error;
+	/*inode的inode_operation函数表的create函数*/
 
 	if (!dir->i_op || !dir->i_op->create)
 		return -EACCES;	/* shouldn't it be ENOSYS? */
 	mode &= S_IALLUGO;
 	mode |= S_IFREG;
+	/*安全检查操作*/
 	error = security_inode_create(dir, dentry, mode);
 	if (error)
 		return error;
 	DQUOT_INIT(dir);
+	/*创建*/
 	error = dir->i_op->create(dir, dentry, mode, nd);
 	if (!error)
 		fsnotify_create(dir, dentry);
@@ -1679,16 +1700,19 @@ static int open_namei_create(struct nameidata *nd, struct path *path,
 {
 	int error;
 	struct dentry *dir = nd->dentry;
-
+	/*POSIX权限标准检查*/
 	if (!IS_POSIXACL(dir->d_inode))
 		mode &= ~current->fs->umask;
+	/*vfs层调用文件创造*/
 	error = vfs_create(dir->d_inode, path->dentry, mode, nd);
 	mutex_unlock(&dir->d_inode->i_mutex);
 	dput(nd->dentry);
+	/*创建后放到nameidata里*/
 	nd->dentry = path->dentry;
 	if (error)
 		return error;
 	/* Don't check for write permission, don't truncate */
+	/*权限检查，不检查写权限和truncate权限*/
 	return may_open(nd, 0, flag & ~O_TRUNC);
 }
 
@@ -1713,24 +1737,28 @@ int open_namei(int dfd, const char *pathname, int flag,
 	struct path path;
 	struct dentry *dir;
 	int count = 0;
-
+	/*从flags得到打开模式*/
 	acc_mode = ACC_MODE(flag);
 
 	/* O_TRUNC implies we need access checks for write permissions */
+	/* O_TRUNC表示我们需要检查写的权限 */
 	if (flag & O_TRUNC)
 		acc_mode |= MAY_WRITE;
 
 	/* Allow the LSM permission hook to distinguish append 
 	   access from general write access. */
+	   /*O_APPEND需要MAY_APPEND权限  */
 	if (flag & O_APPEND)
 		acc_mode |= MAY_APPEND;
 
 	/*
 	 * The simplest case - just a plain lookup.
-	 */
+	 */	 
+	/*如果不是创建文件的话，就调用path_lookup_open函数获得文件的dentry和vfsmount填充nameidata结构体，找到后就直接返回*/
 	if (!(flag & O_CREAT)) {
 		error = path_lookup_open(dfd, pathname, lookup_flags(flag),
 					 nd, flag);
+		/*获得后就直接返回函数*/
 		if (error)
 			return error;
 		goto ok;
@@ -1739,6 +1767,7 @@ int open_namei(int dfd, const char *pathname, int flag,
 	/*
 	 * Create - we need to know the parent.
 	 */
+	 /*如果是要创建文件，我们需要知道父目录，所以加上LOOKUP_PARENT的flag*/
 	error = path_lookup_create(dfd,pathname,LOOKUP_PARENT,nd,flag,mode);
 	if (error)
 		return error;
@@ -1747,7 +1776,8 @@ int open_namei(int dfd, const char *pathname, int flag,
 	 * We have the parent and last component. First of all, check
 	 * that we are not asked to creat(2) an obvious directory - that
 	 * will not do.
-	 */
+	 */	 
+	/*已经拥有了父目录，我们检查下返回结果，如果最后找到的是目录就返回错误，我们只创建文件不创建目录 */
 	error = -EISDIR;
 	if (nd->last_type != LAST_NORM || nd->last.name[nd->last.len])
 		goto exit;
@@ -1755,10 +1785,12 @@ int open_namei(int dfd, const char *pathname, int flag,
 	dir = nd->dentry;
 	nd->flags &= ~LOOKUP_PARENT;
 	mutex_lock(&dir->d_inode->i_mutex);
+	/*填充path结构体*/
 	path.dentry = lookup_hash(nd);
 	path.mnt = nd->mnt;
 
 do_last:
+	/*如果获得的参数有问题就返回错误*/
 	error = PTR_ERR(path.dentry);
 	if (IS_ERR(path.dentry)) {
 		mutex_unlock(&dir->d_inode->i_mutex);
@@ -1784,10 +1816,12 @@ do_last:
 	 */
 	mutex_unlock(&dir->d_inode->i_mutex);
 	audit_inode(pathname, path.dentry);
+	/*O_EXCL标志代表如果文件存在就退出*/
 
 	error = -EEXIST;
 	if (flag & O_EXCL)
 		goto exit_dput;
+	/*找到真正的挂载点*/
 
 	if (__follow_mount(&path)) {
 		error = -ELOOP;
@@ -1796,22 +1830,27 @@ do_last:
 	}
 
 	error = -ENOENT;
+	/*说明创建失败*/
 	if (!path.dentry->d_inode)
 		goto exit_dput;
+	/*处理连接*/
 	if (path.dentry->d_inode->i_op && path.dentry->d_inode->i_op->follow_link)
 		goto do_link;
-
+	/*path结构体转成nameidata结构体*/
 	path_to_nameidata(&path, nd);
 	error = -EISDIR;
+	/*再次检查*/
 	if (path.dentry->d_inode && S_ISDIR(path.dentry->d_inode->i_mode))
 		goto exit;
 ok:
+	/*写之前的一些检查和准备工作*/
 	error = may_open(nd, acc_mode, flag);
 	if (error)
 		goto exit;
 	return 0;
 
 exit_dput:
+	/*退出前释放path*/
 	dput_path(&path, nd);
 exit:
 	if (!IS_ERR(nd->intent.open.file))
@@ -1820,6 +1859,7 @@ exit:
 	return error;
 
 do_link:
+	/*如果flag有O_NOFOLLOW，说明禁止链接，直接返回错误*/
 	error = -ELOOP;
 	if (flag & O_NOFOLLOW)
 		goto exit_dput;
@@ -1833,10 +1873,12 @@ do_link:
 	 * stored in nd->last.name and we will have to putname() it when we
 	 * are done. Procfs-like symlinks just set LAST_BIND.
 	 */
+	 /*首先找到父目录*/
 	nd->flags |= LOOKUP_PARENT;
 	error = security_inode_follow_link(path.dentry, nd);
 	if (error)
 		goto exit_dput;
+	/*搜寻，并创建*/
 	error = __do_follow_link(&path, nd);
 	if (error) {
 		/* Does someone understand code flow here? Or it is only
@@ -1847,6 +1889,7 @@ do_link:
 		return error;
 	}
 	nd->flags &= ~LOOKUP_PARENT;
+	/*检验返回结果*/
 	if (nd->last_type == LAST_BIND)
 		goto ok;
 	error = -EISDIR;
@@ -1857,10 +1900,12 @@ do_link:
 		goto exit;
 	}
 	error = -ELOOP;
+	/*超出循环最大次数*/
 	if (count++==32) {
 		__putname(nd->last.name);
 		goto exit;
 	}
+	/*填充返回结果*/
 	dir = nd->dentry;
 	mutex_lock(&dir->d_inode->i_mutex);
 	path.dentry = lookup_hash(nd);
