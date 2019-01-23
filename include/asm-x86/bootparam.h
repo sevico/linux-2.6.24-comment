@@ -10,6 +10,7 @@
 #include <video/edid.h>
 
 struct setup_header {
+//实模式代码setup镜像的扇区个数
 	__u8	setup_sects;
 	__u16	root_flags;
 	__u32	syssize;
@@ -23,15 +24,19 @@ struct setup_header {
 	__u16	jump;
 	__u32	header;
 	__u16	version;
+	//realmode_swtch用来设置Hook函数，
+	//setup在进入保护模式前调用该函数
 	__u32	realmode_swtch;
 	__u16	start_sys;
 	__u16	kernel_version;
+	//Boot Loader的类别，不同的boot loader有一个唯一的编号
 	__u8	type_of_loader;
 	__u8	loadflags;
 #define LOADED_HIGH	(1<<0)
 #define KEEP_SEGMENTS	(1<<6)
 #define CAN_USE_HEAP	(1<<7)
 	__u16	setup_move_size;
+//保护模式代码的入口
 	__u32	code32_start;
 	__u32	ramdisk_image;
 	__u32	ramdisk_size;
