@@ -316,6 +316,7 @@ static unsigned long __init free_all_bootmem_core(pg_data_t *pgdat)
 	/* first extant page of the node */
 	pfn = PFN_DOWN(bdata->node_boot_start);
 	idx = bdata->node_low_pfn - pfn;
+	//页面位图起始地址
 	map = bdata->node_bootmem_map;
 	/* Check physaddr is O(LOG2(BITS_PER_LONG)) page aligned */
 	if (bdata->node_boot_start == 0 ||
@@ -323,7 +324,7 @@ static unsigned long __init free_all_bootmem_core(pg_data_t *pgdat)
 		gofast = 1;
 	for (i = 0; i < idx; ) {
 		unsigned long v = ~map[i / BITS_PER_LONG];
-
+		//v全为1，则无需逐一扫描每个BIT，一次释放32个页面
 		if (gofast && v == ~0UL) {
 			int order;
 
@@ -334,6 +335,7 @@ static unsigned long __init free_all_bootmem_core(pg_data_t *pgdat)
 			i += BITS_PER_LONG;
 			page += BITS_PER_LONG;
 		} else if (v) {
+			//逐一扫描每个BIT
 			unsigned long m;
 
 			page = pfn_to_page(pfn);

@@ -156,16 +156,19 @@ static void __init kernel_physical_mapping_init(pgd_t *pgd_base)
 	pmd_t *pmd;
 	pte_t *pte;
 	int pgd_idx, pmd_idx, pte_ofs;
-
+	//取得虚拟地址PAGE_OFFSET对应的页目录索引
 	pgd_idx = pgd_index(PAGE_OFFSET);
 	pgd = pgd_base + pgd_idx;
 	pfn = 0;
-
+	//PTRS_PER_PGD表示页目录表中有多少项，这里是1024
 	for (; pgd_idx < PTRS_PER_PGD; pgd++, pgd_idx++) {
 		pmd = one_md_table_init(pgd);
+		//保证只映射max_low_pfn个页面
 		if (pfn >= max_low_pfn)
 			continue;
+		//PTRS_PER_PMD表示页中间目录中有多少项，这里为1
 		for (pmd_idx = 0; pmd_idx < PTRS_PER_PMD && pfn < max_low_pfn; pmd++, pmd_idx++) {
+			//从虚拟地址PAGE_OFFSET开始映射
 			unsigned int address = pfn * PAGE_SIZE + PAGE_OFFSET;
 
 			/* Map with big pages if possible, otherwise create normal page tables. */
@@ -179,7 +182,7 @@ static void __init kernel_physical_mapping_init(pgd_t *pgd_base)
 				pfn += PTRS_PER_PTE;
 			} else {
 				pte = one_page_table_init(pmd);
-
+				//填写页表项，页表项所指的物理地址从0开始
 				for (pte_ofs = 0;
 				     pte_ofs < PTRS_PER_PTE && pfn < max_low_pfn;
 				     pte++, pfn++, pte_ofs++, address += PAGE_SIZE) {

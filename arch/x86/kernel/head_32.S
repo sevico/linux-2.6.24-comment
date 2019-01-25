@@ -124,6 +124,24 @@ ENTRY(startup_32)
 	movsl
 	movl boot_params - __PAGE_OFFSET + NEW_CL_POINTER,%esi
 	andl %esi,%esi
+	jz 1f			# No comand lin
+	shrl $2,%ecx
+	rep ; stosl
+/*
+ * Copy bootup parameters out of the way.
+ * Note: %esi still has the pointer to the real-mode data.
+ * With the kexec as boot loader, parameter segment might be loaded beyond
+ * kernel image and might not even be addressable by early boot page tables.
+ * (kexec on panic case). Hence copy out the parameters before initializing
+ * page tables.
+ */
+	movl $(boot_params - __PAGE_OFFSET),%edi
+	movl $(PARAM_SIZE/4),%ecx
+	cld
+	rep
+	movsl
+	movl boot_params - __PAGE_OFFSET + NEW_CL_POINTER,%esi
+	andl %esi,%esi
 	jz 1f			# No comand line
 	movl $(boot_command_line - __PAGE_OFFSET),%edi
 	movl $(COMMAND_LINE_SIZE/4),%ecx

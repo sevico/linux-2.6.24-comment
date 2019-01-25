@@ -530,12 +530,15 @@ extern struct page *mem_map;
  */
 struct bootmem_data;
 typedef struct pglist_data {
+	//属于该节点的zone
 	struct zone node_zones[MAX_NR_ZONES];
 	struct zonelist node_zonelists[MAX_ZONELISTS];
+	//该节点zone的个数
 	int nr_zones;
 #ifdef CONFIG_FLAT_NODE_MEM_MAP
 	struct page *node_mem_map;
 #endif
+//由启动时的bootmem_alloctor使用，该结构包含了页位图的首地址
 	struct bootmem_data *bdata;
 #ifdef CONFIG_MEMORY_HOTPLUG
 	/*
@@ -547,10 +550,12 @@ typedef struct pglist_data {
 	 */
 	spinlock_t node_size_lock;
 #endif
+//该节点第一个页面的编号PFN
 	unsigned long node_start_pfn;
 	unsigned long node_present_pages; /* total number of physical pages */
 	unsigned long node_spanned_pages; /* total size of physical page
 					     range, including holes */
+	//node编号
 	int node_id;
 	wait_queue_head_t kswapd_wait;
 	struct task_struct *kswapd;

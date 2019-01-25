@@ -585,6 +585,7 @@ static __always_inline int __vfs_follow_link(struct nameidata *nd, const char *l
 	/*获得文件对应的inode*/
 	res = link_path_walk(link, nd);
 out:
+	/*有错误就返回错误*/
 	if (nd->depth || res || nd->last_type!=LAST_NORM)
 		return res;
 	/*
@@ -592,6 +593,7 @@ out:
 	 * have to copy the last component. And all that crap because of
 	 * bloody create() on broken symlinks. Furrfu...
 	 */
+	 /*申请内存返回文件名*/
 	name = __getname();
 	if (unlikely(!name)) {
 		path_release(nd);
@@ -635,13 +637,18 @@ static __always_inline int __do_follow_link(struct path *path, struct nameidata 
 		dget(dentry);
 	}
 	mntget(path->mnt);
+	/*调用底层文件系统的follow_link函数*/
 	cookie = dentry->d_inode->i_op->follow_link(dentry, nd);
+	/*如果没有出错，就调用高层的follow_link*/
 	error = PTR_ERR(cookie);
 	if (!IS_ERR(cookie)) {
+		/*首先从nd里获得软链接所指向的文件*/
 		char *s = nd_get_link(nd);
 		error = 0;
+	/*因为软链接可能指向其他的文件系统的文件，所以需要给高层调用，继续寻找*/
 		if (s)
 			error = __vfs_follow_link(nd, s);
+		/*使用后释放*/
 		if (dentry->d_inode->i_op->put_link)
 			dentry->d_inode->i_op->put_link(dentry, nd, cookie);
 	}
@@ -661,6 +668,7 @@ static __always_inline int __do_follow_link(struct path *path, struct nameidata 
 static inline int do_follow_link(struct path *path, struct nameidata *nd)
 {
 	int err = -ELOOP;
+	/*如果已经超出了最大循环限度，就退出*/
 	if (current->link_count >= MAX_NESTED_LINKS)
 		goto loop;
 	if (current->total_link_count >= 40)
@@ -670,10 +678,13 @@ static inline int do_follow_link(struct path *path, struct nameidata *nd)
 	err = security_inode_follow_link(path->dentry, nd);
 	if (err)
 		goto loop;
+	/*进入之前，先把循环的深度++*/
 	current->link_count++;
 	current->total_link_count++;
+	/*主要工作函数*/
 	nd->depth++;
 	err = __do_follow_link(path, nd);
+	/*退出后减一*/
 	current->link_count--;
 	nd->depth--;
 	return err;

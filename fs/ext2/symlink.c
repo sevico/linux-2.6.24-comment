@@ -23,7 +23,9 @@
 
 static void *ext2_follow_link(struct dentry *dentry, struct nameidata *nd)
 {
+	/*首先得到ext2_inode_info结构体，获得i_data字段，这个字段在ext2文件系统就是软链接的指向文件*/
 	struct ext2_inode_info *ei = EXT2_I(dentry->d_inode);
+	/*然后就在nd结构体内部记录下来*/
 	nd_set_link(nd, (char *)ei->i_data);
 	return NULL;
 }

@@ -34,10 +34,15 @@ typedef int (*param_set_fn)(const char *val, struct kernel_param *kp);
 typedef int (*param_get_fn)(char *buffer, struct kernel_param *kp);
 
 struct kernel_param {
+	//参数名称
 	const char *name;
+	//参数出现在/sys目录下的权限
 	unsigned int perm;
+	//设置参数的函数指针
 	param_set_fn set;
+	//读取该参数的函数指针
 	param_get_fn get;
+	//参数信息
 	union {
 		void *arg;
 		const struct kparam_string *str;

@@ -3331,6 +3331,9 @@ static void __meminit free_area_init_core(struct pglist_data *pgdat,
 
 	pgdat_resize_init(pgdat);
 	pgdat->nr_zones = 0;
+	//当一个可阻塞的进程在该节点上申请内存，内存不够时，
+	//需要把进程放入等待队列，并唤醒kswapd进程把某些内存腾
+	//到磁盘的交换分区上，kswapd_wait就是在该节点上的等待队列
 	init_waitqueue_head(&pgdat->kswapd_wait);
 	pgdat->kswapd_max_order = 0;
 	
@@ -3451,10 +3454,14 @@ void __meminit free_area_init_node(int nid, struct pglist_data *pgdat,
 {
 	pgdat->node_id = nid;
 	pgdat->node_start_pfn = node_start_pfn;
+	//根据PFN计算该节点的总页面数，并保存
+	//到pgdat结构的node_present_pages和node_spanned_pages成员中
 	calculate_node_totalpages(pgdat, zones_size, zholes_size);
-
+	//根据总页面数，向bootmem alloctor申请足够的page结构
+	//并将起始地址保存到pgdat的node_mem_map成员，以及全局变量mem_map数组中
+	//数组中第N项就对应第N个页面的page结构
 	alloc_node_mem_map(pgdat);
-
+//初始化该节点的ZONE结构
 	free_area_init_core(pgdat, zones_size, zholes_size);
 }
 
@@ -3849,8 +3856,10 @@ void __init free_area_init_nodes(unsigned long *max_zone_pfn)
 				sizeof(arch_zone_lowest_possible_pfn));
 	memset(arch_zone_highest_possible_pfn, 0,
 				sizeof(arch_zone_highest_possible_pfn));
+	//从active_ragions中找到最小的PFN
 	arch_zone_lowest_possible_pfn[0] = find_min_pfn_with_active_regions();
 	arch_zone_highest_possible_pfn[0] = max_zone_pfn[0];
+	//分别计算每一个管理区的最大和最小PFN
 	for (i = 1; i < MAX_NR_ZONES; i++) {
 		if (i == ZONE_MOVABLE)
 			continue;
