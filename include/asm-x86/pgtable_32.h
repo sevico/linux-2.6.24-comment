@@ -392,7 +392,10 @@ static inline pte_t pte_modify(pte_t pte, pgprot_t newprot)
  * this macro returns the index of the entry in the pgd page which would
  * control the given virtual address
  */
+/* 在页目录中查找虚拟地址所在的页目录项 */
+// 获取页目录中虚拟地址所在下标
 #define pgd_index(address) (((address) >> PGDIR_SHIFT) & (PTRS_PER_PGD-1))
+// 获取页目录中虚拟地址所在的页目录项的指针
 #define pgd_index_k(addr) pgd_index(addr)
 
 /*

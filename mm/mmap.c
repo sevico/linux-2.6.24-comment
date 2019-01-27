@@ -1607,6 +1607,7 @@ int expand_upwards(struct vm_area_struct *vma, unsigned long address)
 /*
  * vma is the first one with address < vma->vm_start.  Have to extend vma.
  */
+// 将栈区自顶向下扩展
 static inline int expand_downwards(struct vm_area_struct *vma,
 				   unsigned long address)
 {
@@ -1618,7 +1619,7 @@ static inline int expand_downwards(struct vm_area_struct *vma,
 	 */
 	if (unlikely(anon_vma_prepare(vma)))
 		return -ENOMEM;
-
+	// 将地址按照页面边界对齐
 	address &= PAGE_MASK;
 	error = security_file_mmap(0, 0, 0, 0, address, 1);
 	if (error)
@@ -1637,9 +1638,11 @@ static inline int expand_downwards(struct vm_area_struct *vma,
 		unsigned long size, grow;
 
 		size = vma->vm_end - address;
+		// 获取扩展页面数
 		grow = (vma->vm_start - address) >> PAGE_SHIFT;
 
 		error = acct_stack_growth(vma, size, grow);
+		// 扩展栈区
 		if (!error) {
 			vma->vm_start = address;
 			vma->vm_pgoff -= grow;

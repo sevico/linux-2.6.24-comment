@@ -1492,6 +1492,7 @@ static inline int pte_unmap_same(struct mm_struct *mm, pmd_t *pmd,
 static inline pte_t maybe_mkwrite(pte_t pte, struct vm_area_struct *vma)
 {
 	if (likely(vma->vm_flags & VM_WRITE))
+		// 将页表项指向可写的物理内存页面 page
 		pte = pte_mkwrite(pte);
 	return pte;
 }
@@ -2175,9 +2176,11 @@ static int do_anonymous_page(struct mm_struct *mm, struct vm_area_struct *vma,
 	inc_mm_counter(mm, anon_rss);
 	lru_cache_add_active(page);
 	page_add_new_anon_rmap(page, vma, address);
+	// 将页表项的值填入一个页表项中.
 	set_pte_at(mm, address, page_table, entry);
 
 	/* No need to invalidate - it was non-present before */
+	// i386 的 MMU 在 CPU 中, 不需要这个功能, 这里为空函数
 	update_mmu_cache(vma, address, entry);
 unlock:
 	pte_unmap_unlock(page_table, ptl);
@@ -2472,6 +2475,7 @@ static inline int handle_pte_fault(struct mm_struct *mm,
 	spinlock_t *ptl;
 
 	entry = *pte;
+	// 判断 PTE 的 P 标志位和第 8 位是否设置(查看物理页面是否在内存中)
 	if (!pte_present(entry)) {
 		if (pte_none(entry)) {
 			if (vma->vm_ops) {
@@ -2523,6 +2527,7 @@ unlock:
 /*
  * By the time we get here, we already hold the mm semaphore
  */
+// 处理页面映射过程中的错误
 int handle_mm_fault(struct mm_struct *mm, struct vm_area_struct *vma,
 		unsigned long address, int write_access)
 {
@@ -2538,13 +2543,17 @@ int handle_mm_fault(struct mm_struct *mm, struct vm_area_struct *vma,
 	if (unlikely(is_vm_hugetlb_page(vma)))
 		return hugetlb_fault(mm, vma, address, write_access);
 	//逐级创建各层页表项，创建失败，说明没有内存，返回OOM
+	// 获取当前虚拟地址所在的 pgd_t 指针
 	pgd = pgd_offset(mm, address);
+	// 获取当前虚拟地址所在的 pud_t 指针
 	pud = pud_alloc(mm, pgd, address);
 	if (!pud)
 		return VM_FAULT_OOM;
+	// 获取当前虚拟地址所在的 pmd_t 指针
 	pmd = pmd_alloc(mm, pud, address);
 	if (!pmd)
 		return VM_FAULT_OOM;
+	// 获取当前虚拟地址所在的 pte_t 指针
 	pte = pte_alloc_map(mm, pmd, address);
 	if (!pte)
 		return VM_FAULT_OOM;

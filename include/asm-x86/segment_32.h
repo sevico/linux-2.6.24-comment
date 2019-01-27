@@ -52,17 +52,21 @@
 #define TLS_SIZE (GDT_ENTRY_TLS_ENTRIES * 8)
 
 #define GDT_ENTRY_DEFAULT_USER_CS	14
+// 用户进程代码段寄存器初始值
 #define __USER_CS (GDT_ENTRY_DEFAULT_USER_CS * 8 + 3)
 
 #define GDT_ENTRY_DEFAULT_USER_DS	15
+// 用户进程数据段寄存器初始值
 #define __USER_DS (GDT_ENTRY_DEFAULT_USER_DS * 8 + 3)
 
 #define GDT_ENTRY_KERNEL_BASE	12
 
 #define GDT_ENTRY_KERNEL_CS		(GDT_ENTRY_KERNEL_BASE + 0)
+// 内核代码段寄存器初始值
 #define __KERNEL_CS (GDT_ENTRY_KERNEL_CS * 8)
 
 #define GDT_ENTRY_KERNEL_DS		(GDT_ENTRY_KERNEL_BASE + 1)
+// 内核数据段寄存器初始值
 #define __KERNEL_DS (GDT_ENTRY_KERNEL_DS * 8)
 
 #define GDT_ENTRY_TSS			(GDT_ENTRY_KERNEL_BASE + 4)

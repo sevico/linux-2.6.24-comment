@@ -394,7 +394,8 @@ struct thread_struct {
 	 },								\
 	.io_bitmap	= { [ 0 ... IO_BITMAP_LONGS] = ~0 },		\
 }
-
+// 创建进程时设置对应进程的段寄存器和栈顶,栈底寄存器
+// Linux 在实现时没有区分除代码段以外的其他各内存段, 统一设置为数据段.
 #define start_thread(regs, new_eip, new_esp) do {		\
 	__asm__("movl %0,%%gs": :"r" (0));			\
 	regs->xfs = 0;						\
