@@ -3263,6 +3263,7 @@ static unsigned long __init usemap_size(unsigned long zonesize)
 static void __init setup_usemap(struct pglist_data *pgdat,
 				struct zone *zone, unsigned long zonesize)
 {
+	//根据 zone 中的page数量计算需要的内存字节数量
 	unsigned long usemapsize = usemap_size(zonesize);
 	zone->pageblock_flags = NULL;
 	if (usemapsize) {
