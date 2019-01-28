@@ -1050,7 +1050,7 @@ static struct page *allocate_slab(struct kmem_cache *s, gfp_t flags, int node)
 
 	if (s->flags & SLAB_RECLAIM_ACCOUNT)
 		flags |= __GFP_RECLAIMABLE;
-
+	//从伙伴系统分配“批发”页面
 	if (node == -1)
 		page = alloc_pages(flags, s->order);
 	else
@@ -1084,7 +1084,7 @@ static struct page *new_slab(struct kmem_cache *s, gfp_t flags, int node)
 	void *p;
 
 	BUG_ON(flags & GFP_SLAB_BUG_MASK);
-
+	//分配页面
 	page = allocate_slab(s,
 		flags & (GFP_RECLAIM_MASK | GFP_CONSTRAINT_MASK), node);
 	if (!page)
@@ -1105,6 +1105,7 @@ static struct page *new_slab(struct kmem_cache *s, gfp_t flags, int node)
 		memset(start, POISON_INUSE, PAGE_SIZE << s->order);
 
 	last = start;
+	//这个循环把分配来的 page frame 链接成 object 链
 	for_each_object(p, s, start) {
 		setup_object(s, page, last);
 		set_freepointer(s, last, p);
@@ -2586,7 +2587,7 @@ void *__kmalloc(size_t size, gfp_t flags)
 	if (unlikely(size > PAGE_SIZE / 2))
 		return (void *)__get_free_pages(flags | __GFP_COMP,
 							get_order(size));
-
+	//根据 size 在 kmem_cache数组中找到最合适的 kmem_cache结构
 	s = get_slab(size, flags);
 
 	if (unlikely(ZERO_OR_NULL_PTR(s)))
@@ -2661,7 +2662,7 @@ void kfree(const void *x)
 
 	if (unlikely(ZERO_OR_NULL_PTR(x)))
 		return;
-
+	//根据地址确定对应的 page 结构体
 	page = virt_to_head_page(x);
 	if (unlikely(!PageSlab(page))) {
 		put_page(page);
