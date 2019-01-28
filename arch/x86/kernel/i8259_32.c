@@ -362,13 +362,24 @@ void __init init_ISA_irqs (void)
 #ifdef CONFIG_X86_LOCAL_APIC
 	init_bsp_APIC();
 #endif
+/*
+	对8259A 芯片进行初始化，其中包括设置起始中断向量为32，默认情况下
+	8259A 的 irq0对应中断向量0，但是0~31是 Intel 为内部中断保留的，所以
+	要把8259A 的 irq0映射为32，具体参考8259A 可编程中断控制器的
+	datasheet 分析 init_8259A
+*/
 	init_8259A(0);
 
 	for (i = 0; i < NR_IRQS; i++) {
+		//irq_desc中的 action 为 NULL，初始状态为disabled，等到驱动程序调用
+		//request_irq函数时，回把相应的 irq_action 结构挂接在 action 链表中
 		irq_desc[i].status = IRQ_DISABLED;
 		irq_desc[i].action = NULL;
 		irq_desc[i].depth = 1;
-
+		/*
+		8259A有15个中断源，所以把这15个 irq_desc 中的 chip 设置为前面提到的i8259A_chip，中断处理函数为handle_level_irq，就是这个函数负责
+		循环调用 action 链表上的函数
+		*/
 		if (i < 16) {
 			/*
 			 * 16 old-style INTA-cycle interrupts:
@@ -379,12 +390,14 @@ void __init init_ISA_irqs (void)
 			/*
 			 * 'high' PCI IRQs filled in on demand
 			 */
+			//其他没有使用，都设置为默认的no_irq_chip
 			irq_desc[i].chip = &no_irq_chip;
 		}
 	}
 }
 
 /* Overridden in paravirt.c */
+//init_IRQ是 native_init_IRQ的别名
 void init_IRQ(void) __attribute__((weak, alias("native_init_IRQ")));
 
 void __init native_init_IRQ(void)
@@ -400,12 +413,22 @@ void __init native_init_IRQ(void)
 	 * us. (some of these will be overridden and become
 	 * 'special' SMP interrupts)
 	 */
+	//设置对应的中断向量表
 	for (i = 0; i < (NR_VECTORS - FIRST_EXTERNAL_VECTOR); i++) {
+		/*
+		vector=32+i,这是由于中断描述符表中的前32项是 Intel 保留给 CPU 内部中断
+		trap_init已经对它们进行了初始化
+		*/
 		int vector = FIRST_EXTERNAL_VECTOR + i;
 		if (i >= NR_IRQS)
 			break;
 		/* SYSCALL_VECTOR was reserved in trap_init. */
 		//跳过用于系统调用的中断向量，因为在trap_init函数中已经初始化
+		/*
+		在 trap_init 中会为设置好的中断向量设置一个标记，这里检查这个标记，
+		如果设置过，就不用再设置对应的中段描述符表项了，
+		中断处理函数地址保存在interrupt数组中
+		*/
 		if (!test_bit(vector, used_vectors))
 			set_intr_gate(vector, interrupt[i]);
 	}

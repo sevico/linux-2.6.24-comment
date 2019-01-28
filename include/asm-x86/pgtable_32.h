@@ -30,6 +30,7 @@ struct vm_area_struct;
  * for zero-mapped memory areas etc..
  */
 #define ZERO_PAGE(vaddr) (virt_to_page(empty_zero_page))
+// empty_zero_page 在后面也会用到，这里就一并列出来了
 extern unsigned long empty_zero_page[1024];
 extern pgd_t swapper_pg_dir[1024];
 extern struct kmem_cache *pmd_cache;

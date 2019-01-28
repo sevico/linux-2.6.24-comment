@@ -191,12 +191,30 @@ num_subarch_entries = (. - subarch_entries) / 4
 page_pde_offset = (__PAGE_OFFSET >> 20);
 
 default_entry:
+# __PAGE_OFFSET 是 3G，pg0 是虚拟地址，减去 __PAGE_OFFSET 后就得到了
+# pg0 的物理地址。我们把 pg0 的物理地址放在了 edi 寄存器里
 	movl $(pg0 - __PAGE_OFFSET), %edi
+	# 同理，这里把 swapper_pg_dir 的物理地址放在 edx
 	movl $(swapper_pg_dir - __PAGE_OFFSET), %edx
+	# page directory/table entry 的低 12 位都是一些标志物，各个位代表的含义
+	# 读者可以参考 https://wiki.osdev.org/Paging 或者书中的第 52 页
 	movl $0x007, %eax			/* 0x007 = PRESENT+RW+USER */
 10:
+# 下面这两行代码对熟悉 C 语言的读者可能会造成一定的困扰。如果从 C 语言的角度
+	# 来看，它们是把地址 &pg0 + 7 放到了 swapper_pg_dir 的第一项；但问题在于，
+	# 为什么要 +7？
+	# 其实这里的 7 和前面那个 7 一样，指的是页目录项的标志物 PRESENT+RW+USER，
+	# pg0 的地址是 4K 对齐的，这意味着他的地址的低 12 位都为 0，加上 7 以后，刚
+	# 好就是我们所需要的页目录项的值。
 	leal 0x007(%edi),%ecx			/* Create PDE entry */
 	movl %ecx,(%edx)			/* Store identity PDE entry */
+	# 书里有说明，我们要把 0x0000 0000 ~ 0x007f ffff 和 0xc000 0000 ~ 0xc07f ffff
+	# 都映射到物理地址 0x0000 0000 ~ 0x007f ffff，下面这一行设置的 0xc000 0000
+	# 对应的页目录项。
+	# 这里的问题在于，按照书里的说明，我们应该设置的是第 0x300 项，这里是加上的却是 0xc00。
+	# 这里需要提一下平时用 C 语言时编译器帮我们做的事。当我们写下 int *p = NULL; p+2
+	# 的时候，编译器知道 int 是 4 个字节，所以 p+2 会汇编代码里面是 +8。
+	# 一个 PDE 也是 32 位，所以真正的偏移量是 0x300 << 2 = 0xc00
 	movl %ecx,page_pde_offset(%edx)		/* Store kernel PDE entry */
 	addl $4,%edx
 	movl $1024, %ecx
