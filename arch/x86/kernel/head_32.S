@@ -216,20 +216,28 @@ default_entry:
 	# 的时候，编译器知道 int 是 4 个字节，所以 p+2 会汇编代码里面是 +8。
 	# 一个 PDE 也是 32 位，所以真正的偏移量是 0x300 << 2 = 0xc00
 	movl %ecx,page_pde_offset(%edx)		/* Store kernel PDE entry */
+	# edx + 4 以后，就是下一个页目录项了，下个循环将会继续初始化（一共两个页目录项）
 	addl $4,%edx
+	# 一个页表有 1024 个页表项，这里初始化一个在接下来的循环里面用到的计数器
 	movl $1024, %ecx
 11:
+	# stosl 把 %eax 的内容复制到物理地址 ES:EDI，也就是 pg0 处；并且 %edi + 4
 	stosl
+	# 加上 0x1000 后，%eax 指向下一个页
 	addl $0x1000,%eax
+	# %ecx -= 1，如果 %ecx 不为 0，跳转到 11 处。这里总共会循环 1024 次，初始化 1024 个页表项。
 	loop 11b
 	/* End condition: we must map up to and including INIT_MAP_BEYOND_END */
 	/* bytes beyond the end of our own page tables; the +0x007 is the attribute bits */
 	leal (INIT_MAP_BEYOND_END+0x007)(%edi),%ebp
 	cmpl %ebp,%eax
 	jb 10b
+	# 到这里的时候，%edi 的值是我们映射的最后一个页表项的地址，这里我们把它存到变量
+	# init_pg_tables_end 里。init_pg_tables_end 在 setup_32.c 里定义
 	movl %edi,(init_pg_tables_end - __PAGE_OFFSET)
 
 	/* Do an early initialization of the fixmap area */
+	# 下面是固定映射的，这部分就先不看了
 	movl $(swapper_pg_dir - __PAGE_OFFSET), %edx
 	movl $(swapper_pg_pmd - __PAGE_OFFSET), %eax
 	addl $0x67, %eax			/* 0x67 == _PAGE_TABLE */
@@ -315,8 +323,11 @@ ENTRY(startup_32_smp)
  * Enable paging
  */
 	movl $swapper_pg_dir-__PAGE_OFFSET,%eax
+	# %cr3 寄存器存放的是页表的地址
 	movl %eax,%cr3		/* set the page table pointer.. */
 	movl %cr0,%eax
+	# cr0 的最高位是 Paging 位，置 1 后启用分页
+	# 关于 cr0，参考 https://en.wikipedia.org/wiki/Control_register#CR0
 	orl $0x80000000,%eax
 	movl %eax,%cr0		/* ..and set paging (PG) bit */
 	ljmp $__BOOT_CS,$1f	/* Clear prefetch and normalize %eip */

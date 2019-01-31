@@ -303,6 +303,11 @@ int setup_irq(unsigned int irq, struct irqaction *new)
 	 */
 	spin_lock_irqsave(&desc->lock, flags);
 	p = &desc->action;
+	/*
+	如果这个 irq 请求队列中已经存在某个设备的中断处理函数，那么需要检查
+	旧的处理函数和新的处理函数是否都允许共享中断。只要某一个不允许共享，
+	则不能把新的中断处理函数添加到该请求队列中
+	*/
 	old = *p;
 	if (old) {
 		/*
@@ -325,6 +330,7 @@ int setup_irq(unsigned int irq, struct irqaction *new)
 #endif
 
 		/* add new interrupt at end of irq queue */
+		//新的中断处理函数被添加到队列尾部
 		do {
 			p = &old->next;
 			old = *p;
@@ -337,7 +343,8 @@ int setup_irq(unsigned int irq, struct irqaction *new)
 	/* Exclude IRQ from balancing */
 	if (new->flags & IRQF_NOBALANCING)
 		desc->status |= IRQ_NO_BALANCING;
-
+	//如果没有共享，则说明这是第一个添加到中断请求队列中的中断处理函数
+	//这里需要做一些必要的初始化工作
 	if (!shared) {
 		irq_chip_set_defaults(desc->chip);
 
@@ -554,11 +561,11 @@ int request_irq(unsigned int irq, irq_handler_t handler,
 		return -EINVAL;
 	if (!handler)
 		return -EINVAL;
-
+	//为新的action结构分配内存
 	action = kmalloc(sizeof(struct irqaction), GFP_ATOMIC);
 	if (!action)
 		return -ENOMEM;
-
+	//初始化 action 结构
 	action->handler = handler;
 	action->flags = irqflags;
 	cpus_clear(action->mask);
@@ -583,7 +590,7 @@ int request_irq(unsigned int irq, irq_handler_t handler,
 		local_irq_restore(flags);
 	}
 #endif
-
+	//把这个 action 结构挂接在irq_desc队列中
 	retval = setup_irq(irq, action);
 	if (retval)
 		kfree(action);

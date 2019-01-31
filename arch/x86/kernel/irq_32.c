@@ -71,7 +71,11 @@ fastcall unsigned int do_IRQ(struct pt_regs *regs)
 	struct pt_regs *old_regs;
 	/* high bit used in ret_from_ code */
 	//获取中断向量号
+	//压入堆栈的 irq 取反得到起始 irq，注意是从0开始的，0~31的中断向量
+	//是 CPU 内部保留的，从31开始，这个向量的作用是找到合适的中断入口程序，
+	//不要把这个irq和中断向量号混淆
 	int irq = ~regs->orig_eax;
+	//找到 irq_desc结构
 	struct irq_desc *desc = irq_desc + irq;
 #ifdef CONFIG_4KSTACKS
 	union irq_ctx *curctx, *irqctx;

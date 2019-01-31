@@ -452,6 +452,7 @@ static void __kprobes do_trap(int trapnr, int signr, char *str, int vm86,
 			      struct pt_regs * regs, long error_code,
 			      siginfo_t *info)
 {
+	//当前进程
 	struct task_struct *tsk = current;
 
 	if (regs->eflags & VM_MASK) {
@@ -459,10 +460,10 @@ static void __kprobes do_trap(int trapnr, int signr, char *str, int vm86,
 			goto vm86_trap;
 		goto trap_signal;
 	}
-
+	//判断异常发生时的运行模式
 	if (!user_mode(regs))
 		goto kernel_trap;
-
+	//用户模式，向用户进程发送信号
 	trap_signal: {
 		/*
 		 * We want error_code and trap_no set for userspace faults and
@@ -482,7 +483,7 @@ static void __kprobes do_trap(int trapnr, int signr, char *str, int vm86,
 			force_sig(signr, tsk);
 		return;
 	}
-
+	//内核模式，尝试利用内核异常处理链修复异常
 	kernel_trap: {
 		if (!fixup_exception(regs)) {
 			tsk->thread.error_code = error_code;

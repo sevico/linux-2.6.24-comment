@@ -64,8 +64,15 @@ static pmd_t * __init one_md_table_init(pgd_t *pgd)
 		
 #ifdef CONFIG_X86_PAE
 	if (!(pgd_val(*pgd) & _PAGE_PRESENT)) {
-		pmd_table = (pmd_t *) alloc_bootmem_low_pages(PAGE_SIZE);
+		// 启用 PAE 的情况下，32 bit 的虚拟地址分为 2 9 9 12，pgd 有
+		// 2^2 = 4 项；pmd 是 2^9 = 512 项；然后是 pte 2^9 = 512 项；
+		// pte 在 kernel_physical_mapping_init 中初始化。
+		// PAE 相关知识参考书上第 56 页
 
+		// bootmem 相关的后面昨晚单独的一篇文章来讲述，这里假装内存被
+		// 神奇地分配出来就好
+		pmd_table = (pmd_t *) alloc_bootmem_low_pages(PAGE_SIZE);
+		// 虚拟化相关的东西，忽略就好
 		paravirt_alloc_pd(__pa(pmd_table) >> PAGE_SHIFT);
 		set_pgd(pgd, __pgd(__pa(pmd_table) | _PAGE_PRESENT));
 		pud = pud_offset(pgd, 0);
@@ -73,6 +80,8 @@ static pmd_t * __init one_md_table_init(pgd_t *pgd)
 			BUG();
 	}
 #endif
+	// 在不启用 PAE 的情况下，下面返回的 pmd_table 其实就是 pgd（也就是
+	// 直接从 pgd 到 pte，两者都是 2^10 = 1024 项）
 	pud = pud_offset(pgd, 0);
 	pmd_table = pmd_offset(pud, 0);
 	return pmd_table;
@@ -157,14 +166,22 @@ static void __init kernel_physical_mapping_init(pgd_t *pgd_base)
 	pte_t *pte;
 	int pgd_idx, pmd_idx, pte_ofs;
 	//取得虚拟地址PAGE_OFFSET对应的页目录索引
+	// PAGE_OFFSET 是 0xc000 0000，这里拿的内核虚拟地址第一项对应的 pgd 的 index
 	pgd_idx = pgd_index(PAGE_OFFSET);
 	pgd = pgd_base + pgd_idx;
 	pfn = 0;
 	//PTRS_PER_PGD表示页目录表中有多少项，这里是1024
+	// 初始化 pgd。pgd 的项数由 PTRS_PER_PGD 定义，在最普通的情况下，它是 1024。
+	// 如果启用了 PAE，则等于 4
 	for (; pgd_idx < PTRS_PER_PGD; pgd++, pgd_idx++) {
+		// 32 位的系统一般是 2 级页表结构（为什么说它是一般，读者后面就会知道了）
+		// 每个 pgd 项都指向一个 pmd，one_md_table_init 初始化一个 pmd。
+		// 建议读者这里先跳过本函数后面部分，看完 one_md_table_init 再回过头来继续往下看
 		pmd = one_md_table_init(pgd);
 		//保证只映射max_low_pfn个页面
+		// max_low_pfn 是被内核直接映射的最后一个页框的页框号，参考书中第 72 页
 		if (pfn >= max_low_pfn)
+			// 超过 max_low_pfn 的 pte 可以不初始化，但 pmd 必须初始化，所以用 continue
 			continue;
 		//PTRS_PER_PMD表示页中间目录中有多少项，这里为1
 		for (pmd_idx = 0; pmd_idx < PTRS_PER_PMD && pfn < max_low_pfn; pmd++, pmd_idx++) {
@@ -173,12 +190,18 @@ static void __init kernel_physical_mapping_init(pgd_t *pgd_base)
 
 			/* Map with big pages if possible, otherwise create normal page tables. */
 			if (cpu_has_pse) {
+				// pfn + PTRS_PER_PTE - 1 是当前 pmd 能够索引的最大的页框号
+				// * PAGE_SIZE + PAGE_OFFSET + (PAGE_SIZE-1) 就是当前 pmd 能够指向的最大的
+				// 地址。也就是说，pmd 的地址范围是 [address, address2]
 				unsigned int address2 = (pfn + PTRS_PER_PTE - 1) * PAGE_SIZE + PAGE_OFFSET + PAGE_SIZE-1;
 				if (is_kernel_text(address) || is_kernel_text(address2))
+					// pmd 包含了内核的 text 段，所以加上了 exec 标记
 					set_pmd(pmd, pfn_pmd(pfn, PAGE_KERNEL_LARGE_EXEC));
 				else
 					set_pmd(pmd, pfn_pmd(pfn, PAGE_KERNEL_LARGE));
-
+				// 启用 PSE 后就不需要 pte 了。
+				// 对于启用了 PAE 的机器来说，一页是 2^(9+12) = 2M
+				// 没有 PAE 则是 2^(10+12) = 4M
 				pfn += PTRS_PER_PTE;
 			} else {
 				pte = one_page_table_init(pmd);

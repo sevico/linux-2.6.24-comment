@@ -96,9 +96,9 @@ VM_MASK		= 0x00020000
 #else
 #define resume_userspace_sig	resume_userspace
 #endif
-
+# 现场保护
 #define SAVE_ALL \
-	cld; \
+	cld; \ # 关中断
 	pushl %fs; \
 	CFI_ADJUST_CFA_OFFSET 4;\
 	/*CFI_REL_OFFSET fs, 0;*/\
@@ -591,6 +591,7 @@ ENTRY(interrupt)
 ENTRY(irq_entries_start)
 	RING0_INT_FRAME
 vector=0
+ /*重复NR_IRQS次*/
 .rept NR_IRQS
 	ALIGN
  .if vector
@@ -646,7 +647,7 @@ KPROBE_ENTRY(page_fault)
 	CFI_ADJUST_CFA_OFFSET 4
 	ALIGN
 error_code:
-	/* the function address is in %fs's slot on the stack */
+	/* the function address is in %fs's slot on the stack 在堆栈保存现场*/
 	pushl %es
 	CFI_ADJUST_CFA_OFFSET 4
 	/*CFI_REL_OFFSET es, 0*/
@@ -683,7 +684,10 @@ error_code:
 	UNWIND_ESPFIX_STACK
 	popl %ecx
 	CFI_ADJUST_CFA_OFFSET -4
+	# PT_xx 定义为某个保存在堆栈中某个寄存器的偏移，例如上面的ebx是最后保存的，
+	# 所以相对于 esp， PT_EBX 就是0
 	/*CFI_REGISTER es, ecx*/
+	# 去除前面压入的处理函数(例如do_divide_error)的地址到 edi 寄存器
 	movl PT_FS(%esp), %edi		# get the function address
 	movl PT_ORIG_EAX(%esp), %edx	# get the error code
 	movl $-1, PT_ORIG_EAX(%esp)	# no syscall to restart
@@ -983,6 +987,8 @@ END(alignment_check)
 
 ENTRY(divide_error)
 	RING0_INT_FRAME
+	# 对于某些异常，CPU 会自动压入一个异常代码，为了统一处理，
+	# 对于没有异常号的那些异常，则软件手工压入0
 	pushl $0			# no error code
 	CFI_ADJUST_CFA_OFFSET 4
 	pushl $do_divide_error

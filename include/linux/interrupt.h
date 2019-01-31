@@ -271,7 +271,9 @@ enum
 
 struct softirq_action
 {
+	//延迟函数
 	void	(*action)(struct softirq_action *);
+	//参数
 	void	*data;
 };
 

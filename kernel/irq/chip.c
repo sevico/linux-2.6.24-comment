@@ -335,8 +335,9 @@ handle_level_irq(unsigned int irq, struct irq_desc *desc)
 	irqreturn_t action_ret;
 
 	spin_lock(&desc->lock);
+	//向中断控制器发送中断应答命令，并屏蔽该中断
 	mask_ack_irq(desc, irq);
-
+	//如果另外一个 CPU 在处理同一个中断，则退出
 	if (unlikely(desc->status & IRQ_INPROGRESS))
 		goto out_unlock;
 	desc->status &= ~(IRQ_REPLAY | IRQ_WAITING);
