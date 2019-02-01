@@ -240,39 +240,54 @@ END(ret_from_fork)
 	ALIGN
 	RING0_PTREGS_FRAME
 ret_from_exception:
+	# 关中断，对于x86平台就是cli指令
 	preempt_stop(CLBR_ANY)
+	# 对于中断返回，中断已经是关闭的
 ret_from_intr:
+	# 把当前进程的thread_info结构指针存入 ebp 寄存器
 	GET_THREAD_INFO(%ebp)
+	# 根据中断现场的 cs 和 eip 寄存器判断中断前夕的运行状态
 check_userspace:
 	movl PT_EFLAGS(%esp), %eax	# mix EFLAGS and CS
 	movb PT_CS(%esp), %al
 	andl $(VM_MASK | SEGMENT_RPL_MASK), %eax
 	cmpl $USER_RPL, %eax
+	# 返回内核态
 	jb resume_kernel		# not returning to v8086 or userspace
-
+# 返回用户态，处理延迟的调度请求，以及延迟的信号
 ENTRY(resume_userspace)
 	LOCKDEP_SYS_EXIT
  	DISABLE_INTERRUPTS(CLBR_ANY)	# make sure we don't miss an interrupt
 					# setting need_resched or sigpending
 					# between sampling and the iret
+	# 检查当前进程是否有延迟的请求等待处理
 	movl TI_flags(%ebp), %ecx
 	andl $_TIF_WORK_MASK, %ecx	# is there any work to be done on
 					# int/exception return?
+	# 处理延迟请求
 	jne work_pending
+	# 恢复现场，中断返回
 	jmp restore_all
 END(ret_from_exception)
 
 #ifdef CONFIG_PREEMPT
 ENTRY(resume_kernel)
+	# 关闭中断
 	DISABLE_INTERRUPTS(CLBR_ANY)
+	# 如果当前进程的thread_info结构的 preempt_count为0，则允许内核态抢占
 	cmpl $0,TI_preempt_count(%ebp)	# non-zero preempt_count ?
+	# 如果不允许内核态抢占则中断返回
 	jnz restore_nocheck
 need_resched:
+	# 如果当前进程的thread_info结构的flag 变量设置了_TIF_NEED_RESCHED,
+	# 则说明有延迟的调度请求需要处理
 	movl TI_flags(%ebp), %ecx	# need_resched set ?
 	testb $_TIF_NEED_RESCHED, %cl
+	# 没有延迟的调度请求
 	jz restore_all
 	testl $IF_MASK,PT_EFLAGS(%esp)	# interrupts off (exception path) ?
 	jz restore_all
+	# 处理延迟的调度请求
 	call preempt_schedule_irq
 	jmp need_resched
 END(resume_kernel)
@@ -467,6 +482,7 @@ ENDPROC(system_call)
 	RING0_PTREGS_FRAME		# can't unwind into user space anyway
 work_pending:
 	testb $_TIF_NEED_RESCHED, %cl
+	# 如果没有延迟的调度请求，则跳转
 	jz work_notifysig
 work_resched:
 	call schedule
@@ -490,6 +506,7 @@ work_notifysig:				# deal with pending signals and
 	jne work_notifysig_v86		# returning to kernel-space or
 					# vm86-space
 	xorl %edx, %edx
+	# 处理延迟的信号
 	call do_notify_resume
 	jmp resume_userspace_sig
 

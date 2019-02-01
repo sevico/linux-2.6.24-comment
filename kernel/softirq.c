@@ -395,7 +395,7 @@ static void tasklet_action(struct softirq_action *a)
 		struct tasklet_struct *t = list;
 
 		list = list->next;
-
+		//保证某一时刻，最多只有一个 CPU 执行同一个 tasklet 函数
 		if (tasklet_trylock(t)) {
 			if (!atomic_read(&t->count)) {
 				if (!test_and_clear_bit(TASKLET_STATE_SCHED, &t->state))
@@ -485,30 +485,35 @@ void __init softirq_init(void)
 
 static int ksoftirqd(void * __bind_cpu)
 {
+	//把ksoftirqd内核线程的状态设置为TASK_INTERRUPTIBLE
 	set_current_state(TASK_INTERRUPTIBLE);
 
 	while (!kthread_should_stop()) {
 		preempt_disable();
+		//如果没有软件中断需要处理，则调用schedule()主动让出 CPU
 		if (!local_softirq_pending()) {
 			preempt_enable_no_resched();
 			schedule();
 			preempt_disable();
 		}
-
+		//当需要时，ksoftirqd 被唤醒，并继续执行到这里，现在把状态设置为TASK_RUNNING
 		__set_current_state(TASK_RUNNING);
 
 		while (local_softirq_pending()) {
 			/* Preempt disable stops cpu going offline.
 			   If already offline, we'll be on wrong CPU:
 			   don't process */
+			   //CPU 热插拔支持
 			if (cpu_is_offline((long)__bind_cpu))
 				goto wait_to_die;
+			//处理软件中断
 			do_softirq();
 			preempt_enable_no_resched();
 			cond_resched();
 			preempt_disable();
 		}
 		preempt_enable();
+		//处理结束，把状态设置为TASK_INTERRUPTIBLE
 		set_current_state(TASK_INTERRUPTIBLE);
 	}
 	__set_current_state(TASK_RUNNING);
