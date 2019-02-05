@@ -232,6 +232,7 @@ void __init hpet_time_init(void)
  */
 void __init time_init(void)
 {
+	//初始化 TSC 时钟源
 	tsc_init();
 	late_time_init = choose_time_init();
 }

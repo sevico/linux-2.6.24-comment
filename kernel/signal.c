@@ -452,7 +452,7 @@ int dequeue_signal(struct task_struct *tsk, sigset_t *mask, siginfo_t *info)
 void signal_wake_up(struct task_struct *t, int resume)
 {
 	unsigned int mask;
-
+	//为进城设置TIF_SIGPENDING标志
 	set_tsk_thread_flag(t, TIF_SIGPENDING);
 
 	/*
@@ -683,11 +683,12 @@ static int send_signal(int sig, struct siginfo *info, struct task_struct *t,
 	   allowed to fail with EAGAIN when low on memory we just
 	   make sure at least one signal gets delivered and don't
 	   pass on the info struct.  */
-
+	//分配sigqueue结构
 	q = __sigqueue_alloc(t, GFP_ATOMIC, (sig < SIGRTMIN &&
 					     (is_si_special(info) ||
 					      info->si_code >= 0)));
 	if (q) {
+		//如果成功分配到了sigqueue 结构，就把它添加到队列中，并对其进行初始化
 		list_add_tail(&q->list, &signals->list);
 		switch ((unsigned long) info) {
 		case (unsigned long) SEND_SIG_NOINFO:
@@ -705,6 +706,7 @@ static int send_signal(int sig, struct siginfo *info, struct task_struct *t,
 			q->info.si_uid = 0;
 			break;
 		default:
+		//拷贝sigqueue 结构
 			copy_siginfo(&q->info, info);
 			break;
 		}
@@ -718,6 +720,7 @@ static int send_signal(int sig, struct siginfo *info, struct task_struct *t,
 	}
 
 out_set:
+	//设置信号位图
 	sigaddset(&signals->signal, sig);
 	return ret;
 }
@@ -764,7 +767,7 @@ specific_send_sig_info(int sig, struct siginfo *info, struct task_struct *t)
 
 	BUG_ON(!irqs_disabled());
 	assert_spin_locked(&t->sighand->siglock);
-
+	//信号被忽略
 	/* Short-circuit ignored signals.  */
 	if (sig_ignored(t, sig))
 		goto out;
@@ -2228,7 +2231,7 @@ static int do_tkill(int tgid, int pid, int sig)
 	int error;
 	struct siginfo info;
 	struct task_struct *p;
-
+	//根据参数初始化一个siginfo结构
 	error = -ESRCH;
 	info.si_signo = sig;
 	info.si_errno = 0;
@@ -2237,8 +2240,10 @@ static int do_tkill(int tgid, int pid, int sig)
 	info.si_uid = current->uid;
 
 	read_lock(&tasklist_lock);
+	//获取由pid 指定的线程task_struct 结构
 	p = find_task_by_vpid(pid);
 	if (p && (tgid <= 0 || task_tgid_vnr(p) == tgid)) {
+		//权限检查
 		error = check_kill_permission(sig, &info, p);
 		/*
 		 * The null signal is a permissions and process existence
@@ -2315,7 +2320,8 @@ int do_sigaction(int sig, struct k_sigaction *act, struct k_sigaction *oact)
 		return -EINVAL;
 
 	k = &current->sighand->action[sig-1];
-
+	//把原来的k_sigaction结构保存到oact结构中，
+	//注意这里是整个数据结构进行复制
 	spin_lock_irq(&current->sighand->siglock);
 	if (oact)
 		*oact = *k;
@@ -2323,6 +2329,7 @@ int do_sigaction(int sig, struct k_sigaction *act, struct k_sigaction *oact)
 	if (act) {
 		sigdelsetmask(&act->sa.sa_mask,
 			      sigmask(SIGKILL) | sigmask(SIGSTOP));
+		//把新的k_sigaction结构复制到进程sighand->action中
 		*k = *act;
 		/*
 		 * POSIX 3.3.1.3:

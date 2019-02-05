@@ -248,16 +248,17 @@ unsigned long __attribute__((weak)) read_persistent_clock(void)
 void __init timekeeping_init(void)
 {
 	unsigned long flags;
+	//从 RTC 中读取当前系统时间
 	unsigned long sec = read_persistent_clock();
 
 	write_seqlock_irqsave(&xtime_lock, flags);
 
 	ntp_clear();
-
+	//选定一个时钟
 	clock = clocksource_get_next();
 	clocksource_calculate_interval(clock, NTP_INTERVAL_LENGTH);
 	clock->cycle_last = clocksource_read(clock);
-
+	//设置全局时间变量xtime和wall_to_monotonic
 	xtime.tv_sec = sec;
 	xtime.tv_nsec = 0;
 	set_normalized_timespec(&wall_to_monotonic,

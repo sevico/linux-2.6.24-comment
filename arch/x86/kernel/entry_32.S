@@ -388,6 +388,7 @@ ENTRY(system_call)
 	/* Note, _TIF_SECCOMP is bit number 8, and so it needs testw and not testb */
 	testw $(_TIF_SYSCALL_EMU|_TIF_SYSCALL_TRACE|_TIF_SECCOMP|_TIF_SYSCALL_AUDIT),TI_flags(%ebp)
 	jnz syscall_trace_entry
+	# 如果系统调用号越界，就跳到syscall_badsys
 	cmpl $(nr_syscalls), %eax
 	jae syscall_badsys
 syscall_call:

@@ -57,9 +57,12 @@ struct clocksource {
 	/*
 	 * First part of structure is read mostly
 	 */
+	//时钟的名字
 	char *name;
+	//所有的时钟通过list链接
 	struct list_head list;
 	int rating;
+	//读取时钟函数指针
 	cycle_t (*read)(void);
 	cycle_t mask;
 	u32 mult;

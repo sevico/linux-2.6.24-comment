@@ -327,9 +327,9 @@ static int setup_frame(int sig, struct k_sigaction *ka,
 	struct sigframe __user *frame;
 	int err = 0;
 	int usig;
-
+	//在用户态堆栈分配一个sigframe结构
 	frame = get_sigframe(ka, regs, sizeof(*frame));
-
+	//检查是否可写
 	if (!access_ok(VERIFY_WRITE, frame, sizeof(*frame)))
 		goto give_sigsegv;
 
@@ -338,7 +338,7 @@ static int setup_frame(int sig, struct k_sigaction *ka,
 		&& sig < 32
 		? current_thread_info()->exec_domain->signal_invmap[sig]
 		: sig;
-
+	//把相关信息从内核态备份到用户态堆栈的sigframe 中
 	err = __put_user(usig, &frame->sig);
 	if (err)
 		goto give_sigsegv;
@@ -353,7 +353,8 @@ static int setup_frame(int sig, struct k_sigaction *ka,
 		if (err)
 			goto give_sigsegv;
 	}
-
+	//这里restorer指向用户堆栈frame->retcode,
+	//retcode就是保存手工构造的sigreturn系统代码
 	if (current->binfmt->hasvdso)
 		restorer = (void *)VDSO_SYM(&__kernel_sigreturn);
 	else
@@ -362,6 +363,9 @@ static int setup_frame(int sig, struct k_sigaction *ka,
 		restorer = ka->sa.sa_restorer;
 
 	/* Set up to return from userspace.  */
+	//把保存sigreturn代码的首地址写入到用户态堆栈顶端
+	//也就是frame->pretcode中，当用户态信号处理函数结束时，
+	//就会把这个地址作为返回地址
 	err |= __put_user(restorer, &frame->pretcode);
 	 
 	/*
@@ -370,6 +374,10 @@ static int setup_frame(int sig, struct k_sigaction *ka,
 	 * WE DO NOT USE IT ANY MORE! It's only left here for historical
 	 * reasons and because gdb uses it as a signature to notice
 	 * signal handler stack frames.
+	 * 在用户态堆栈(frame->retcode)中构造以下指令：
+	 * pop \%eax
+	 * movl _NR_sigreturn,\%eax
+	 * int \$0x80
 	 */
 	err |= __put_user(0xb858, (short __user *)(frame->retcode+0));
 	err |= __put_user(__NR_sigreturn, (int __user *)(frame->retcode+2));
@@ -379,6 +387,7 @@ static int setup_frame(int sig, struct k_sigaction *ka,
 		goto give_sigsegv;
 
 	/* Set up registers for signal handler */
+	//把pt_regs结构中的eip设置为进程的用户态信号处理函数地址
 	regs->esp = (unsigned long) frame;
 	regs->eip = (unsigned long) ka->sa.sa_handler;
 	regs->eax = (unsigned long) sig;
