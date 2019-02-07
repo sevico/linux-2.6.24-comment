@@ -415,6 +415,7 @@ static int hrtimer_reprogram(struct hrtimer *timer,
 	 * the callback is executed in the hrtimer_interrupt context. The
 	 * reprogramming is handled either by the softirq, which called the
 	 * callback or at the end of the hrtimer_interrupt.
+	 * 如果定时器回调函数已经在另外一个 CPU 上执行
 	 */
 	if (hrtimer_callback_running(timer))
 		return 0;
@@ -586,7 +587,7 @@ static int hrtimer_switch_to_hres(void)
 		return 1;
 
 	local_irq_save(flags);
-
+	//初始化
 	if (tick_init_highres()) {
 		local_irq_restore(flags);
 		printk(KERN_WARNING "Could not switch to high resolution "
@@ -596,7 +597,7 @@ static int hrtimer_switch_to_hres(void)
 	base->hres_active = 1;
 	base->clock_base[CLOCK_REALTIME].resolution = KTIME_HIGH_RES;
 	base->clock_base[CLOCK_MONOTONIC].resolution = KTIME_HIGH_RES;
-
+	//设置一个 tick emultation 时钟
 	tick_setup_sched_timer();
 
 	/* "Retrigger" the interrupt to get things going */
@@ -833,11 +834,17 @@ hrtimer_start(struct hrtimer *timer, ktime_t tim, const enum hrtimer_mode mode)
 	base = lock_hrtimer_base(timer, &flags);
 
 	/* Remove an active timer from the queue: */
+	//如果这个 hrtimer 已经在队列中，则先将其移除
 	ret = remove_hrtimer(timer, base);
 
 	/* Switch the timer base, if necessary: */
+	//检查是否需要转换 clock base，也就是判断添加到 CLOCK_REALTIME 队列
+	//还是 CLOCK_MONOTONIC 队列。如果合格 hrtimer 已经在队列中两个（有可能
+	//	在另外的 CPU 队列中），并且有没完成的任务而不能被删除，而现在再次要添加
+	//时钟队列和原来的不一致
 	new_base = switch_hrtimer_base(timer, base);
-
+	//真实事件的时钟，那么需要在过期时间的基础上加上当前时间，
+	//相对时钟则不必进行该项操作
 	if (mode == HRTIMER_MODE_REL) {
 		tim = ktime_add(tim, new_base->get_time());
 		/*
@@ -860,13 +867,16 @@ hrtimer_start(struct hrtimer *timer, ktime_t tim, const enum hrtimer_mode mode)
 			tim.tv64 = KTIME_MAX;
 	}
 	timer->expires = tim;
-
+	//设置/proc/timer_stats文件的统计信息
 	timer_stats_hrtimer_set_start_info(timer);
 
 	/*
 	 * Only allow reprogramming if the new base is on this CPU.
 	 * (it might still be on another CPU if the timer was pending)
 	 */
+	//也许这个 hrtimer 以前被添加到另外的 CPU 时钟队列中，且不能被删除
+	//只有 hrtimer 所在的 CPU 和执行当前代码的 CPU 为同一个 CPU 时，才允许必
+	//要时重新设置时钟中断设备的下一次中断时间
 	enqueue_hrtimer(timer, new_base,
 			new_base->cpu_base == &__get_cpu_var(hrtimer_bases));
 
@@ -994,15 +1004,15 @@ void hrtimer_init(struct hrtimer *timer, clockid_t clock_id,
 	struct hrtimer_cpu_base *cpu_base;
 
 	memset(timer, 0, sizeof(struct hrtimer));
-
+	//获取当前 CPU的hrtimer_cpu_base结构指针
 	cpu_base = &__raw_get_cpu_var(hrtimer_bases);
 
 	if (clock_id == CLOCK_REALTIME && mode != HRTIMER_MODE_ABS)
 		clock_id = CLOCK_MONOTONIC;
-
+	//每个 CPU 都有两个时钟队列，根据模式判断这个时钟该初始化所用的队列
 	timer->base = &cpu_base->clock_base[clock_id];
 	hrtimer_init_timer_hres(timer);
-
+	//初始化统计信息
 #ifdef CONFIG_TIMER_STATS
 	timer->start_site = NULL;
 	timer->start_pid = -1;
@@ -1053,7 +1063,7 @@ void hrtimer_interrupt(struct clock_event_device *dev)
 	expires_next.tv64 = KTIME_MAX;
 
 	base = cpu_base->clock_base;
-
+	//分别处理CLOCK_REALTIME和CLOCK_MONOTONIC
 	for (i = 0; i < HRTIMER_MAX_CLOCK_BASES; i++) {
 		ktime_t basenow;
 		struct rb_node *node;
@@ -1066,18 +1076,21 @@ void hrtimer_interrupt(struct clock_event_device *dev)
 			struct hrtimer *timer;
 
 			timer = rb_entry(node, struct hrtimer, node);
-
+			//由于是根据红黑树按序处理，所以遇到第一个还没到期的定时器时，
+			//就说明剩下的 hrtimer 都没有过期
 			if (basenow.tv64 < timer->expires.tv64) {
 				ktime_t expires;
 
 				expires = ktime_sub(timer->expires,
 						    base->offset);
+				//expires_next用来跟踪时钟中断设备下一次发出中断的时机
 				if (expires.tv64 < expires_next.tv64)
 					expires_next = expires;
 				break;
 			}
 
 			/* Move softirq callbacks to the pending list */
+			//定时器的回调函数需要在软中断中处理移除该 hrtimer，并请求软件中断
 			if (timer->cb_mode == HRTIMER_CB_SOFTIRQ) {
 				__remove_hrtimer(timer, base,
 						 HRTIMER_STATE_PENDING, 0);
@@ -1097,8 +1110,10 @@ void hrtimer_interrupt(struct clock_event_device *dev)
 			 * the event hardware. This happens at the end
 			 * of this function anyway.
 			 */
+			//定时器的回调函数需要在中断环境中执行，则直接允许其回调函数
 			if (timer->function(timer) != HRTIMER_NORESTART) {
 				BUG_ON(timer->state != HRTIMER_STATE_CALLBACK);
+				//必要时再次排队该 hrtimer
 				enqueue_hrtimer(timer, base, 0);
 			}
 			timer->state &= ~HRTIMER_STATE_CALLBACK;
@@ -1225,7 +1240,7 @@ void hrtimer_run_queues(void)
 {
 	struct hrtimer_cpu_base *cpu_base = &__get_cpu_var(hrtimer_bases);
 	int i;
-
+	//如果 High-Resolution Timers 已经启用则返回
 	if (hrtimer_hres_active())
 		return;
 
@@ -1242,7 +1257,7 @@ void hrtimer_run_queues(void)
 			return;
 
 	hrtimer_get_softirq_time(cpu_base);
-
+	//执行High-Resolution Timers的软中断函数
 	for (i = 0; i < HRTIMER_MAX_CLOCK_BASES; i++)
 		run_hrtimer_queue(cpu_base, i);
 }
@@ -1274,15 +1289,18 @@ void hrtimer_init_sleeper(struct hrtimer_sleeper *sl, struct task_struct *task)
 
 static int __sched do_nanosleep(struct hrtimer_sleeper *t, enum hrtimer_mode mode)
 {
+	//把 hrtimer 的回调函数设置为hrtimer_wakeup
 	hrtimer_init_sleeper(t, current);
 
 	do {
+		//当前进程设置为等待状态
 		set_current_state(TASK_INTERRUPTIBLE);
+		//把 hrtiemr添加到队列中
 		hrtimer_start(&t->timer, t->timer.expires, mode);
-
+		//当前进程主动让出 CPU
 		if (likely(t->task))
 			schedule();
-
+		//删除该hrtimer
 		hrtimer_cancel(&t->timer);
 		mode = HRTIMER_MODE_ABS;
 
@@ -1325,7 +1343,7 @@ long hrtimer_nanosleep(struct timespec *rqtp, struct timespec *rmtp,
 	struct restart_block *restart;
 	struct hrtimer_sleeper t;
 	ktime_t rem;
-
+	//初始化一个hrtimer
 	hrtimer_init(&t.timer, clockid, mode);
 	t.timer.expires = timespec_to_ktime(*rqtp);
 	if (do_nanosleep(&t, mode))

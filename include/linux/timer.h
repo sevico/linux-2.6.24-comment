@@ -9,9 +9,11 @@ struct tvec_t_base_s;
 
 struct timer_list {
 	struct list_head entry;
+	//过期时间
 	unsigned long expires;
-
+	//定时器回调函数
 	void (*function)(unsigned long);
+	//回调函数的参数
 	unsigned long data;
 
 	struct tvec_t_base_s *base;

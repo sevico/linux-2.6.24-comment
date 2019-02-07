@@ -62,12 +62,13 @@ static void tick_periodic(int cpu)
 
 		/* Keep track of the next tick event */
 		tick_next_period = ktime_add(tick_next_period, tick_period);
-
+		//更新系统时间
 		do_timer(1);
 		write_sequnlock(&xtime_lock);
 	}
-
+	//统计进程的时间信息，同时还会请求时钟软中断
 	update_process_times(user_mode(get_irq_regs()));
+	//性能分析
 	profile_tick(CPU_PROFILING);
 }
 
@@ -140,6 +141,9 @@ static void tick_setup_device(struct tick_device *td,
 
 	/*
 	 * First device setup ?
+	 * 如果当前 CPU 还没有clock_event_device，就默认新设备为周期性设备，
+	 * 并计算该设备的中断周期，其中NSEC_PER_SEC表示一秒钟的纳秒数，HZ 是编译时
+	 * 配置的每秒中的中断次数，所以 tick_period 就是中断周期，单位为纳秒
 	 */
 	if (!td->evtdev) {
 		/*
@@ -157,10 +161,11 @@ static void tick_setup_device(struct tick_device *td,
 		 */
 		td->mode = TICKDEV_MODE_PERIODIC;
 	} else {
+		//如果当前 CPU 已经有一个 clock_event_device
 		handler = td->evtdev->event_handler;
 		next_event = td->evtdev->next_event;
 	}
-
+	//当前 CPU 使用新的clock_event_device
 	td->evtdev = newdev;
 
 	/*
@@ -212,6 +217,8 @@ static int tick_check_new_device(struct clock_event_device *newdev)
 		/*
 		 * If the cpu affinity of the device interrupt can not
 		 * be set, ignore it.
+		 * 如果该设备不是 CPU 的本地设备，则先判断注册的设备是否能够向该 CPU 发送IRQ，
+		 * 如果新注册的设备不能向该 CPU发出中断请求，则维持不变
 		 */
 		if (!irq_can_set_affinity(newdev->irq))
 			goto out_bc;
@@ -219,6 +226,8 @@ static int tick_check_new_device(struct clock_event_device *newdev)
 		/*
 		 * If we have a cpu local device already, do not replace it
 		 * by a non cpu local device
+		 * 如果新设备不是CPU的本地设备，且当前 CPU使用的设备是本地设备，
+		 * 则还是使用原设备
 		 */
 		if (curdev && cpus_equal(curdev->cpumask, cpumask))
 			goto out_bc;
@@ -231,12 +240,16 @@ static int tick_check_new_device(struct clock_event_device *newdev)
 	if (curdev) {
 		/*
 		 * Prefer one shot capable devices !
+		 * 如果CPU当前使用的设备支持而 ONESHOT工作模式，而新注册的不支持，
+		 * 则使用原设备
 		 */
 		if ((curdev->features & CLOCK_EVT_FEAT_ONESHOT) &&
 		    !(newdev->features & CLOCK_EVT_FEAT_ONESHOT))
 			goto out_bc;
 		/*
 		 * Check the rating
+		 * 如果新注册的设备和CPU 当前使用的设备特性一致，则根据 rating来判断设备的
+		 * 优先级，新设备的 rating小于当前设备的 rating，则维持当前使用的设备不变
 		 */
 		if (curdev->rating >= newdev->rating)
 			goto out_bc;
@@ -246,8 +259,10 @@ static int tick_check_new_device(struct clock_event_device *newdev)
 	 * Replace the eventually existing device by the new
 	 * device. If the current device is the broadcast device, do
 	 * not give it back to the clockevents layer !
+	 * 经过上面的一系列判断后。运行到这里说明CPU 需要使用新注册的设备
 	 */
 	if (tick_is_broadcast_device(curdev)) {
+		//关闭目前使用的设备
 		clockevents_set_mode(curdev, CLOCK_EVT_MODE_SHUTDOWN);
 		curdev = NULL;
 	}

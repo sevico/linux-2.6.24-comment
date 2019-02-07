@@ -527,6 +527,7 @@ static enum hrtimer_restart tick_sched_timer(struct hrtimer *timer)
 #endif
 
 	/* Check, if the jiffies need an update */
+	//更新系统时间
 	if (tick_do_timer_cpu == cpu)
 		tick_do_update_jiffies64(now);
 
@@ -579,6 +580,7 @@ void tick_setup_sched_timer(void)
 	/*
 	 * Emulate tick processing via per-CPU hrtimers:
 	 */
+	//初始化hrtimer
 	hrtimer_init(&ts->sched_timer, CLOCK_MONOTONIC, HRTIMER_MODE_ABS);
 	ts->sched_timer.function = tick_sched_timer;
 	ts->sched_timer.cb_mode = HRTIMER_CB_IRQSAFE_NO_SOFTIRQ;
@@ -589,7 +591,7 @@ void tick_setup_sched_timer(void)
 	do_div(offset, num_possible_cpus());
 	offset *= smp_processor_id();
 	ts->sched_timer.expires = ktime_add_ns(ts->sched_timer.expires, offset);
-
+	//添加hrtimer
 	for (;;) {
 		hrtimer_forward(&ts->sched_timer, now, tick_period);
 		hrtimer_start(&ts->sched_timer, ts->sched_timer.expires,

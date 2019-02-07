@@ -156,6 +156,7 @@ int do_settimeofday(struct timespec *tv)
 	wtm_nsec = wall_to_monotonic.tv_nsec + (xtime.tv_nsec - nsec);
 
 	set_normalized_timespec(&xtime, sec, nsec);
+	//相应更正wall_to_monotonic
 	set_normalized_timespec(&wall_to_monotonic, wtm_sec, wtm_nsec);
 
 	clock->error = 0;
@@ -456,6 +457,7 @@ void update_wall_time(void)
 		return;
 
 #ifdef CONFIG_GENERIC_TIME
+	//从clocksource中读取当前时间
 	offset = (clocksource_read(clock) - clock->cycle_last) & clock->mask;
 #else
 	offset = clock->cycle_interval;
@@ -470,7 +472,7 @@ void update_wall_time(void)
 		clock->xtime_nsec += clock->xtime_interval;
 		clock->cycle_last += clock->cycle_interval;
 		offset -= clock->cycle_interval;
-
+		//增加 xtime 的秒数
 		if (clock->xtime_nsec >= (u64)NSEC_PER_SEC << clock->shift) {
 			clock->xtime_nsec -= (u64)NSEC_PER_SEC << clock->shift;
 			xtime.tv_sec++;
@@ -493,6 +495,7 @@ void update_wall_time(void)
 
 	/* check to see if there is a new clocksource to use */
 	change_clocksource();
+	//当前定义为空
 	update_vsyscall(&xtime, clock);
 }
 

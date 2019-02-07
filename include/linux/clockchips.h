@@ -74,23 +74,34 @@ enum clock_event_nofitiers {
  * @next_event:		local storage for the next event in oneshot mode
  */
 struct clock_event_device {
+	//设备名称
 	const char		*name;
+	//设备功能
 	unsigned int		features;
+	//该设备的最大和最小中断周期。单位纳秒
 	unsigned long		max_delta_ns;
 	unsigned long		min_delta_ns;
+	//将纳秒转化为时钟周期
 	unsigned long		mult;
 	int			shift;
+	//优先级
 	int			rating;
+	//中断请求号
 	int			irq;
+	//这个中断设备所属的 CPU 掩码
 	cpumask_t		cpumask;
 	int			(*set_next_event)(unsigned long evt,
 						  struct clock_event_device *);
+	//改变设备工作模式的函数指针
 	void			(*set_mode)(enum clock_event_mode mode,
 					    struct clock_event_device *);
+	//中断处理函数
 	void			(*event_handler)(struct clock_event_device *);
 	void			(*broadcast)(cpumask_t mask);
 	struct list_head	list;
+	//当前设备工作模式，可以使periodic或者oneshot
 	enum clock_event_mode	mode;
+	//下一次该设备发出中断的时间，单位为纳秒
 	ktime_t			next_event;
 };
 

@@ -400,6 +400,7 @@ again:
 	mask = CPU_MASK_NONE;
 	now = ktime_get();
 	/* Find all expired events */
+	//查看哪些 CPU 上有过时的时钟
 	for (cpu = first_cpu(tick_broadcast_oneshot_mask); cpu != NR_CPUS;
 	     cpu = next_cpu(cpu, tick_broadcast_oneshot_mask)) {
 		td = &per_cpu(tick_cpu_device, cpu);
@@ -512,7 +513,8 @@ void tick_broadcast_switch_to_oneshot(void)
 	unsigned long flags;
 
 	spin_lock_irqsave(&tick_broadcast_lock, flags);
-
+	//把全局 broadcast device 的 event_hander
+	//设置为tick_handle_oneshot_broadcast
 	tick_broadcast_device.mode = TICKDEV_MODE_ONESHOT;
 	bc = tick_broadcast_device.evtdev;
 	if (bc)

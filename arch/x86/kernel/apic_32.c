@@ -363,6 +363,7 @@ static void __init lapic_cal_handler(struct clock_event_device *dev)
  */
 void __init setup_boot_APIC_clock(void)
 {
+	//对于 Local APIC，每一个 CPU 都有一个clock_event_device对象
 	struct clock_event_device *levt = &__get_cpu_var(lapic_events);
 	const long pm_100ms = PMTMR_TICKS_PER_SEC/10;
 	const long pm_thresh = pm_100ms/100;

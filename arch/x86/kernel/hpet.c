@@ -214,6 +214,7 @@ static void hpet_legacy_clockevent_register(void)
 	 * scaled math multiplication factor for nanosecond to hpet tick
 	 * conversion.
 	 */
+	//根据频率计算相关参数
 	hpet_freq = 1000000000000000ULL;
 	do_div(hpet_freq, hpet_period);
 	hpet_clockevent.mult = div_sc((unsigned long) hpet_freq,
@@ -228,8 +229,11 @@ static void hpet_legacy_clockevent_register(void)
 	 * Start hpet with the boot cpu mask and make it
 	 * global after the IO_APIC has been initialized.
 	 */
+	//设置其cpumask 为本地 CPU
 	hpet_clockevent.cpumask = cpumask_of_cpu(smp_processor_id());
+	//注册hpet  clock_event_device对象
 	clockevents_register_device(&hpet_clockevent);
+	//全局变量global_clock_event指向当前使用的clock_event_device对象
 	global_clock_event = &hpet_clockevent;
 	printk(KERN_DEBUG "hpet clockevent registered\n");
 }
@@ -376,10 +380,10 @@ static int hpet_clocksource_register(void)
 int __init hpet_enable(void)
 {
 	unsigned long id;
-
+	//探测硬件系统是否支持HPET
 	if (!is_hpet_capable())
 		return 0;
-
+	//为 HPET设置fixmap内存映射
 	hpet_set_mapping();
 
 	/*
@@ -403,11 +407,12 @@ int __init hpet_enable(void)
 	if (!(id & HPET_ID_NUMBER))
 		goto out_nohpet;
 #endif
-
+	//为HPET注册clocksource 对象
 	if (hpet_clocksource_register())
 		goto out_nohpet;
 
 	if (id & HPET_ID_LEGSUP) {
+		//为HPET注册clock_event_device对象
 		hpet_legacy_clockevent_register();
 		return 1;
 	}

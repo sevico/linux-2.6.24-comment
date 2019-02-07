@@ -69,7 +69,9 @@ typedef struct tvec_root_s {
 struct tvec_t_base_s {
 	spinlock_t lock;
 	struct timer_list *running_timer;
+	//整个队列中时钟最早到期的 jiffies
 	unsigned long timer_jiffies;
+	//list 数组
 	tvec_root_t tv1;
 	tvec_t tv2;
 	tvec_t tv3;
@@ -257,9 +259,10 @@ static inline void set_running_timer(tvec_base_t *base,
 static void internal_add_timer(tvec_base_t *base, struct timer_list *timer)
 {
 	unsigned long expires = timer->expires;
+	//计算添加的 timer 的过期时间和队列中最早到期的 timer 的时间差
 	unsigned long idx = expires - base->timer_jiffies;
 	struct list_head *vec;
-
+	//0<=idx<TVR_SIZE则添加到tv1的对应数组中
 	if (idx < TVR_SIZE) {
 		int i = expires & TVR_MASK;
 		vec = base->tv1.vec + i;
@@ -329,6 +332,7 @@ static void timer_stats_account_timer(struct timer_list *timer) {}
  * init_timer() must be done to a timer prior calling *any* of the
  * other timer functions.
  */
+//timer_list对象的回调函数由程序设置
 void fastcall init_timer(struct timer_list *timer)
 {
 	timer->entry.next = NULL;
@@ -602,6 +606,8 @@ static int cascade(tvec_base_t *base, tvec_t *tv, int index)
 	/*
 	 * We are removing _all_ timers from the list, so we
 	 * don't have to detach them individually.
+	 * 对该链表上的每一个定时器对象，重新调用internal_add_timer
+	 * 这样就把某些定时器就移动到 tv1链表上(前一个)
 	 */
 	list_for_each_entry_safe(timer, tmp, &tv_list, entry) {
 		BUG_ON(tbase_get_base(timer->base) != base);
@@ -840,10 +846,13 @@ void update_process_times(int user_tick)
 	int cpu = smp_processor_id();
 
 	/* Note: this timer irq context must be accounted for as well. */
+	//统计当前进程的运行时间
 	account_process_tick(p, user_tick);
+	//请求时间软中断
 	run_local_timers();
 	if (rcu_pending(cpu))
 		rcu_check_callbacks(cpu, user_tick);
+	//减少当前进程的时间片，如果当前进程时间片已经用完，则请求延迟调度
 	scheduler_tick();
 	run_posix_cpu_timers(p);
 }
@@ -897,7 +906,7 @@ static void run_timer_softirq(struct softirq_action *h)
 	tvec_base_t *base = __get_cpu_var(tvec_bases);
 
 	hrtimer_run_queues();
-
+	//timer_jiffies是最早到期的时间
 	if (time_after_eq(jiffies, base->timer_jiffies))
 		__run_timers(base);
 }
@@ -1350,13 +1359,16 @@ static struct notifier_block __cpuinitdata timers_nb = {
 
 void __init init_timers(void)
 {
+	//notifier对象注册前，手工调用timer_cpu_notify
 	int err = timer_cpu_notify(&timers_nb, (unsigned long)CPU_UP_PREPARE,
 				(void *)(long)smp_processor_id());
-
+	//建立/proc/timer_stats文件,用于统计
 	init_timer_stats();
 
 	BUG_ON(err == NOTIFY_BAD);
+	//注册一个notifier对象，其回调函数为timer_cpu_notify
 	register_cpu_notifier(&timers_nb);
+	//注册时钟软中断函数
 	open_softirq(TIMER_SOFTIRQ, run_timer_softirq, NULL);
 }
 

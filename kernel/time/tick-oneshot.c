@@ -90,6 +90,8 @@ int tick_switch_to_oneshot(void (*handler)(struct clock_event_device *))
 	}
 
 	td->mode = TICKDEV_MODE_ONESHOT;
+	//把 CPU 本地 clock_event_device 的 event_handler
+	//设置为 hrtimer_interrup
 	dev->event_handler = handler;
 	clockevents_set_mode(dev, CLOCK_EVT_MODE_ONESHOT);
 	tick_broadcast_switch_to_oneshot();

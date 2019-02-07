@@ -100,7 +100,7 @@ int clockevents_program_event(struct clock_event_device *dev, ktime_t expires,
 
 	clc = delta * dev->mult;
 	clc >>= dev->shift;
-
+	//调用clock_event_device对象的set_next_event
 	return dev->set_next_event((unsigned long) clc, dev);
 }
 
