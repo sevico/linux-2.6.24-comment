@@ -929,7 +929,9 @@ struct sched_entity {
 };
 
 struct task_struct {
+	//进程状态
 	volatile long state;	/* -1 unrunnable, 0 runnable, >0 stopped */
+	//内核态栈
 	void *stack;
 	atomic_t usage;
 	unsigned int flags;	/* per process flags, defined below */
@@ -983,17 +985,19 @@ struct task_struct {
 	 */
 	struct list_head ptrace_children;
 	struct list_head ptrace_list;
-
+	//进程的内存布局信息
 	struct mm_struct *mm, *active_mm;
 
 /* task state */
 	struct linux_binfmt *binfmt;
+	//进程退出状态
 	int exit_state;
 	int exit_code, exit_signal;
 	int pdeath_signal;  /*  The signal sent when the parent dies  */
 	/* ??? */
 	unsigned int personality;
 	unsigned did_exec:1;
+	//进程ID
 	pid_t pid;
 	pid_t tgid;
 
@@ -1006,6 +1010,7 @@ struct task_struct {
 	 * older sibling, respectively.  (p->father can be replaced with 
 	 * p->parent->pid)
 	 */
+	//进程的亲缘关系
 	struct task_struct *real_parent; /* real parent process (when being debugged) */
 	struct task_struct *parent;	/* parent process */
 	/*
@@ -1025,6 +1030,7 @@ struct task_struct {
 	int __user *clear_child_tid;		/* CLONE_CHILD_CLEARTID */
 
 	unsigned int rt_priority;
+	//时间统计信息
 	cputime_t utime, stime, utimescaled, stimescaled;
 	cputime_t gtime;
 	cputime_t prev_utime, prev_stime;
@@ -1039,6 +1045,7 @@ struct task_struct {
 	struct list_head cpu_timers[3];
 
 /* process credentials */
+	//用户认证信息
 	uid_t uid,euid,suid,fsuid;
 	gid_t gid,egid,sgid,fsgid;
 	struct group_info *group_info;
@@ -1050,6 +1057,7 @@ struct task_struct {
 	struct key *thread_keyring;	/* keyring private to this thread */
 	unsigned char jit_keyring;	/* default keyring to attach requested keys to */
 #endif
+//进程的可执行文件名，不包含路径，最大长度为15字符
 	char comm[TASK_COMM_LEN]; /* executable name excluding path
 				     - access with [gs]et_task_comm (which lock
 				       it with task_lock())
@@ -1065,10 +1073,12 @@ struct task_struct {
 /* filesystem information */
 	struct fs_struct *fs;
 /* open file information */
+//打开的文件描述符
 	struct files_struct *files;
 /* namespaces */
 	struct nsproxy *nsproxy;
 /* signal handlers */
+//进程的信号处理相关信息
 	struct signal_struct *signal;
 	struct sighand_struct *sighand;
 

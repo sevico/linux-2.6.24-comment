@@ -771,11 +771,12 @@ static int noinline init_post(void)
 	mark_rodata_ro();
 	system_state = SYSTEM_RUNNING;
 	numa_default_policy();
-
+	//打开console，其文件描述符file的指针保存在fd_array[0]中
 	if (sys_open((const char __user *) "/dev/console", O_RDWR, 0) < 0)
 		printk(KERN_WARNING "Warning: unable to open an initial console.\n");
-
+	//复制文件描述符0，索引加上1，这样fd_array[1]就指向了 console 的 file 结构
 	(void) sys_dup(0);
+	//fd_array[2]就指向了 console 的 file 结构
 	(void) sys_dup(0);
 
 	if (ramdisk_execute_command) {

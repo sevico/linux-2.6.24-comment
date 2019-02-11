@@ -300,7 +300,7 @@ static void pgd_dtor(void *pgd)
 static pmd_t *pmd_cache_alloc(int idx)
 {
 	pmd_t *pmd;
-
+	//内核态虚拟地址空间，分配页表并复制swapper_pg_dir
 	if (idx >= USER_PTRS_PER_PGD) {
 		pmd = (pmd_t *)__get_free_page(GFP_KERNEL);
 
@@ -309,6 +309,7 @@ static pmd_t *pmd_cache_alloc(int idx)
 			       (void *)pgd_page_vaddr(swapper_pg_dir[idx]),
 			       sizeof(pmd_t) * PTRS_PER_PMD);
 	} else
+		//用户态虚拟地址空间，分配页表
 		pmd = kmem_cache_alloc(pmd_cache, GFP_KERNEL);
 
 	return pmd;
@@ -325,23 +326,25 @@ static void pmd_cache_free(pmd_t *pmd, int idx)
 pgd_t *pgd_alloc(struct mm_struct *mm)
 {
 	int i;
+	//分配页目录页面，同时调用pgd_ctor函数对页目录进行初始化
 	pgd_t *pgd = quicklist_alloc(0, GFP_KERNEL, pgd_ctor);
 
 	if (PTRS_PER_PMD == 1 || !pgd)
 		return pgd;
-
+	//分配页内核态虚拟地址空间所需的页表，同时把页表的物理地址设置到页目录中
  	for (i = 0; i < UNSHARED_PTRS_PER_PGD; ++i) {
 		pmd_t *pmd = pmd_cache_alloc(i);
 
 		if (!pmd)
 			goto out_oom;
-
+		//虚拟化支持
 		paravirt_alloc_pd(__pa(pmd) >> PAGE_SHIFT);
 		set_pgd(&pgd[i], __pgd(1 + __pa(pmd)));
 	}
 	return pgd;
 
 out_oom:
+	//只要有一个页表分配失败，就释放之前分配到的页表
 	for (i--; i >= 0; i--) {
 		pgd_t pgdent = pgd[i];
 		void* pmd = (void *)__va(pgd_val(pgdent)-1);

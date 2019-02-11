@@ -18,20 +18,32 @@ extern struct task_struct * FASTCALL(__switch_to(struct task_struct *prev, struc
  */
 #define switch_to(prev,next,last) do {					\
 	unsigned long esi,edi;						\
-	asm volatile("pushfl\n\t"		/* Save flags */	\
+	asm volatile(
+		//在当前进程堆栈中保存 Eflags
+		"pushfl\n\t"		/* Save flags */	\
+		//在当前进程的堆栈保存EBP
 		     "pushl %%ebp\n\t"					\
+			 //把esp 保存到prev->thread.esp中
 		     "movl %%esp,%0\n\t"	/* save ESP */		\
+			 //把next->thread.esp加载到寄存器ESP中，现在，切换到了next 的内核堆栈
 		     "movl %5,%%esp\n\t"	/* restore ESP */	\
+			 //把标号为1的地址保存到prev->thread.eip中，当下一
+			 //次切换到进程 prev 时，它将从标号为1的地址处执行
 		     "movl $1f,%1\n\t"		/* save EIP */		\
+			 //把next->thread.eip保存到堆栈中,并且调用
+			 //__switch_to函数，这样__switch_to函数的返回地址就是 next->thread.eip
 		     "pushl %6\n\t"		/* restore EIP */	\
 		     "jmp __switch_to\n"				\
+			 //在把地址保存到prev->thread.eip中，当再次切换到这个进程时，
+			 //通过第"pushl %6\n\t"，从next->thread.eip取出上次保存的EIP作为返回地址
+			 //进程将从这里继续执行
 		     "1:\t"						\
 		     "popl %%ebp\n\t"					\
 		     "popfl"						\
 		     :"=m" (prev->thread.esp),"=m" (prev->thread.eip),	\
 		      "=a" (last),"=S" (esi),"=D" (edi)			\
 		     :"m" (next->thread.esp),"m" (next->thread.eip),	\
-		      "2" (prev), "d" (next));				\
+		      "2" (prev), "d" (next));
 } while (0)
 
 #define _set_base(addr,base) do { unsigned long __pr; \

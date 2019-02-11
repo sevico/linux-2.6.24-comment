@@ -232,10 +232,10 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 	rb_link = &mm->mm_rb.rb_node;
 	rb_parent = NULL;
 	pprev = &mm->mmap;
-
+	//处理每一个vm_area_struct结构
 	for (mpnt = oldmm->mmap; mpnt; mpnt = mpnt->vm_next) {
 		struct file *file;
-
+		//不需要复制
 		if (mpnt->vm_flags & VM_DONTCOPY) {
 			long pages = vma_pages(mpnt);
 			mm->total_vm -= pages;
@@ -244,15 +244,18 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 			continue;
 		}
 		charge = 0;
+		//需要安全计数检查
 		if (mpnt->vm_flags & VM_ACCOUNT) {
 			unsigned int len = (mpnt->vm_end - mpnt->vm_start) >> PAGE_SHIFT;
 			if (security_vm_enough_memory(len))
 				goto fail_nomem;
 			charge = len;
 		}
+		//为子进程分配新的vm_area_struct结构
 		tmp = kmem_cache_alloc(vm_area_cachep, GFP_KERNEL);
 		if (!tmp)
 			goto fail_nomem;
+		//整个结构复制
 		*tmp = *mpnt;
 		pol = mpol_copy(vma_policy(mpnt));
 		retval = PTR_ERR(pol);
@@ -264,6 +267,7 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 		tmp->vm_next = NULL;
 		anon_vma_link(tmp);
 		file = tmp->vm_file;
+		//如果这片内存对应的是一个文件映射，则设置文件相关信息，增加文件的引用计数等
 		if (file) {
 			struct inode *inode = file->f_path.dentry->d_inode;
 			get_file(file);
@@ -282,14 +286,16 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 		/*
 		 * Link in the new vma and copy the page table entries.
 		 */
+		//把新的vm_area_struct结构添加到子进程
 		*pprev = tmp;
 		pprev = &tmp->vm_next;
-
+		//添加到红黑树
 		__vma_link_rb(mm, tmp, rb_link, rb_parent);
 		rb_link = &tmp->vm_rb.rb_right;
 		rb_parent = &tmp->vm_rb;
 
 		mm->map_count++;
+		//分配设置页表，并不需要分配物理页面
 		retval = copy_page_range(mm, oldmm, mpnt);
 
 		if (tmp->vm_ops && tmp->vm_ops->open)
@@ -498,23 +504,23 @@ static struct mm_struct *dup_mm(struct task_struct *tsk)
 
 	if (!oldmm)
 		return NULL;
-
+	//分配mm_struct 结构
 	mm = allocate_mm();
 	if (!mm)
 		goto fail_nomem;
-
+	//复制 mm_struct 结构
 	memcpy(mm, oldmm, sizeof(*mm));
 
 	/* Initializing for Swap token stuff */
 	mm->token_priority = 0;
 	mm->last_interval = 0;
-
+	//初始化，同时分配页表
 	if (!mm_init(mm))
 		goto fail_nomem;
 
 	if (init_new_context(tsk, mm))
 		goto fail_nocontext;
-
+	//拷贝 vm_area_struct结构
 	err = dup_mmap(mm, oldmm);
 	if (err)
 		goto free_pt;
@@ -559,7 +565,7 @@ static int copy_mm(unsigned long clone_flags, struct task_struct * tsk)
 	oldmm = current->mm;
 	if (!oldmm)
 		return 0;
-
+	//如果要共享mm，则增加父进程 mm的引用计数，同时把设置mm 为 current->mm
 	if (clone_flags & CLONE_VM) {
 		atomic_inc(&oldmm->mm_users);
 		mm = oldmm;
@@ -980,7 +986,7 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	int retval;
 	struct task_struct *p;
 	int cgroup_callbacks_done = 0;
-
+	//标志检查
 	if ((clone_flags & (CLONE_NEWNS|CLONE_FS)) == (CLONE_NEWNS|CLONE_FS))
 		return ERR_PTR(-EINVAL);
 
@@ -998,12 +1004,15 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	 */
 	if ((clone_flags & CLONE_SIGHAND) && !(clone_flags & CLONE_VM))
 		return ERR_PTR(-EINVAL);
-
+	//安全检查框架，利用它可以在进程建立前检查是否允许检查，利用这个开发框架
+	//可以开发出进程监控。默认调用dummy_task_create函数，它什么也不做
 	retval = security_task_create(clone_flags);
 	if (retval)
 		goto fork_out;
 
 	retval = -ENOMEM;
+	//为子进程分配一个 task_struct 和内核态堆栈，把父进程的task_struct结构
+	//复制到子进程，同时设置内核态堆栈中的 thread_info结构
 	p = dup_task_struct(current);
 	if (!p)
 		goto fork_out;
@@ -1014,6 +1023,7 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	DEBUG_LOCKS_WARN_ON(!p->hardirqs_enabled);
 	DEBUG_LOCKS_WARN_ON(!p->softirqs_enabled);
 #endif
+	//检查进程的资源限制
 	retval = -EAGAIN;
 	if (atomic_read(&p->user->processes) >=
 			p->signal->rlim[RLIMIT_NPROC].rlim_cur) {
@@ -1026,6 +1036,7 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	该指针共享该用户的资源信息，因为创建了新的进程，所以必须更新该用户的
 	user_struct结构，累加相应的计数器
 */
+	//增加当前用户建立的进程数量
 	atomic_inc(&p->user->__count);
 	atomic_inc(&p->user->processes);
 	get_group_info(p->group_info);
@@ -1046,6 +1057,7 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 
 	p->did_exec = 0;
 	delayacct_tsk_init(p);	/* Must remain after dup_task_struct() */
+	//拷贝 clone_flags 到子进程的task_struct
 	copy_flags(clone_flags, p);
 	INIT_LIST_HEAD(&p->children);
 	INIT_LIST_HEAD(&p->sibling);
@@ -1129,12 +1141,14 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 
 	/* Perform scheduler related setup. Assign this task to a CPU. */
 	sched_fork(p, clone_flags);
-
+	//安全检查框架，默认什么也不做
 	if ((retval = security_task_alloc(p)))
 		goto bad_fork_cleanup_policy;
 	if ((retval = audit_alloc(p)))
 		goto bad_fork_cleanup_security;
 	/* copy all the process information */
+	//下面根据 clone_flags 复制父进程的资源到子进程，对于 clone_flags 指定的共享资源，
+	//则仅仅设置子进程的相关指针，并增加资源数据结构的引用计数
 	if ((retval = copy_semundo(clone_flags, p)))
 		goto bad_fork_cleanup_audit;
 	if ((retval = copy_files(clone_flags, p)))
@@ -1151,6 +1165,7 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 		goto bad_fork_cleanup_mm;
 	if ((retval = copy_namespaces(clone_flags, p)))
 		goto bad_fork_cleanup_keys;
+	//复制父进程的内核态堆栈到子进程
 	retval = copy_thread(0, clone_flags, stack_start, stack_size, p, regs);
 	if (retval)
 		goto bad_fork_cleanup_namespaces;
@@ -1170,6 +1185,7 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 
 	p->pid = pid_nr(pid);
 	p->tgid = p->pid;
+	//如果建立的是轻权进程，那么父子进程在同一个线程组中，就设置子进程的 tgid
 	if (clone_flags & CLONE_THREAD)
 		p->tgid = current->tgid;
 
@@ -1206,8 +1222,10 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	p->parent_exec_id = p->self_exec_id;
 
 	/* ok, now we should be set up.. */
+	//父进程是否要求子进程退出时发送信号
 	p->exit_signal = (clone_flags & CLONE_THREAD) ? -1 : (clone_flags & CSIGNAL);
 	p->pdeath_signal = 0;
+	//子进程默认的退出状态
 	p->exit_state = 0;
 
 	/*
@@ -1247,6 +1265,7 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 
 	/* CLONE_PARENT re-uses the old parent */
 	if (clone_flags & (CLONE_PARENT|CLONE_THREAD))
+	//把子进程的 real_parent 设置为父进程的 real_parent
 		p->real_parent = current->real_parent;
 	else
 		p->real_parent = current;
@@ -1291,7 +1310,9 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	}
 
 	if (likely(p->pid)) {
+		//把子进程添加到父进程的子进程链表中，这样组成了兄弟进程链表
 		add_parent(p);
+		//如果父进程是调试器，那么设置子进程的 parent 指针为调试器的父进程
 		if (unlikely(p->ptrace & PT_PTRACED))
 			__ptrace_link(p, current->parent);
 
@@ -1317,7 +1338,7 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	proc_fork_connector(p);
 	cgroup_post_fork(p);
 	return p;
-
+//出错退出
 bad_fork_free_pid:
 	if (pid != &init_struct_pid)
 		free_pid(pid);
@@ -1421,13 +1442,16 @@ long do_fork(unsigned long clone_flags,
 	struct task_struct *p;
 	int trace = 0;
 	long nr;
-
+	//current是父进程，如果该进程被跟踪，那么当调试器要求跟踪每一个子进程时
+	//创建出来的子进程也处于跟踪状态
 	if (unlikely(current->ptrace)) {
 		trace = fork_traceflag (clone_flags);
 		if (trace)
 			clone_flags |= CLONE_PTRACE;
 	}
 //调用copy_process完成具体的复制工作
+//分配子进程task_struct结构，并复制父进程资源
+//我们接下来将对这个函数进行详细分析
 	p = copy_process(clone_flags, stack_start, regs, stack_size,
 			child_tidptr, NULL);
 	/*
@@ -1448,18 +1472,21 @@ long do_fork(unsigned long clone_flags,
 		 * this is enough to call pid_nr_ns here, but this if
 		 * improves optimisation of regular fork()
 		 */
+		//这是为进程 pid namespace 设置的，不同的 namespace 中
+		//可以建立相同的 pid 进程
 		nr = (clone_flags & CLONE_NEWPID) ?
 			task_pid_nr_ns(p, current->nsproxy->pid_ns) :
 				task_pid_vnr(p);
-
+		//把进程 ID 传递到 parent_tidptr 指针指定的用户空间
 		if (clone_flags & CLONE_PARENT_SETTID)
 			put_user(nr, parent_tidptr);
 		//如果设置了CLONE_VFORK标志，则把父进程添加到等待队列并挂起
+		//CLONE_VFORK要求父进程进入子进程，现在初始化一个等待对象
 		if (clone_flags & CLONE_VFORK) {
 			p->vfork_done = &vfork;
 			init_completion(&vfork);
 		}
-
+		//如果被调试，或者设置了CLONE_STOPPED标志，则向进程发送SIGSTOP信号
 		if ((p->ptrace & PT_PTRACED) || (clone_flags & CLONE_STOPPED)) {
 			/*
 			 * We'll start up with an immediate SIGSTOP.
@@ -1467,12 +1494,12 @@ long do_fork(unsigned long clone_flags,
 			sigaddset(&p->pending.signal, SIGSTOP);
 			set_tsk_thread_flag(p, TIF_SIGPENDING);
 		}
-
+		//如果没有设置CLONE_STOPPED标志，就把进程加入就绪队列
 		if (!(clone_flags & CLONE_STOPPED))
 			wake_up_new_task(p, clone_flags);
 		else
 			p->state = TASK_STOPPED;
-
+		//如果被调试，就发送SIGTRAP信号
 		if (unlikely (trace)) {
 			current->ptrace_message = nr;
 			ptrace_notify ((trace << 8) | SIGTRAP);
@@ -1480,6 +1507,7 @@ long do_fork(unsigned long clone_flags,
 
 		if (clone_flags & CLONE_VFORK) {
 			freezer_do_not_count();
+			//当前进程进入之前初始化好的等待队列
 			wait_for_completion(&vfork);
 			freezer_count();
 			if (unlikely (current->ptrace & PT_TRACE_VFORK_DONE)) {

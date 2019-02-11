@@ -467,20 +467,25 @@ int copy_thread(int nr, unsigned long clone_flags, unsigned long esp,
 	struct pt_regs * childregs;
 	struct task_struct *tsk;
 	int err;
-
+	//内核态堆栈
 	childregs = task_pt_regs(p);
+	//父进程内核态堆栈中的pt_regs复制到子进程的内核态堆栈
 	*childregs = *regs;
+	//子进程pt_regs结构的 eax 设置为0，所以子进程fork返回0
 	childregs->eax = 0;
+	//调整子进程的内核态堆栈指针
 	childregs->esp = esp;
 
 	p->thread.esp = (unsigned long) childregs;
 	p->thread.esp0 = (unsigned long) (childregs+1);
-
+	//设置子进程的 thread.eip，这样当子进程被调度运行时
+	//就从ret_from_fork返回
 	p->thread.eip = (unsigned long) ret_from_fork;
 
 	savesegment(gs,p->thread.gs);
 
 	tsk = current;
+	//IO 权限位
 	if (unlikely(test_tsk_thread_flag(tsk, TIF_IO_BITMAP))) {
 		p->thread.io_bitmap_ptr = kmemdup(tsk->thread.io_bitmap_ptr,
 						IO_BITMAP_BYTES, GFP_KERNEL);
@@ -494,6 +499,7 @@ int copy_thread(int nr, unsigned long clone_flags, unsigned long esp,
 	/*
 	 * Set a new TLS for the child thread?
 	 */
+	//线程本地存储机制
 	if (clone_flags & CLONE_SETTLS) {
 		struct desc_struct *desc;
 		struct user_desc info;

@@ -668,13 +668,17 @@ reparent_thread(struct task_struct *p, struct task_struct *father, int traced)
  */
 static void forget_original_parent(struct task_struct *father)
 {
+	//参数 father就是当前要退出的进程
 	struct task_struct *p, *n, *reaper = father;
 	struct list_head ptrace_dead;
 
 	INIT_LIST_HEAD(&ptrace_dead);
 
 	write_lock_irq(&tasklist_lock);
-
+	//reaper就是选定的“继父”，首先在该进程组中寻找一个标志不为PF_EXITING的进程
+	//作为“继父”。如果reaper==father,则说明进程组中的所有进程都遍历完了，还没有
+	//找到一个满足条件的“继父”，于是就调用task_child_reaper函数获取默认继父
+	//通常这个“继父”就是init 进程
 	do {
 		reaper = next_thread(reaper);
 		if (reaper == father) {
@@ -691,6 +695,7 @@ static void forget_original_parent(struct task_struct *father)
 	 *
 	 * Search them and reparent children.
 	 */
+	//根据子进程中的兄弟进程链表处理当前进程的所有子进程
 	list_for_each_entry_safe(p, n, &father->children, sibling) {
 		int ptrace;
 
@@ -698,13 +703,19 @@ static void forget_original_parent(struct task_struct *father)
 
 		/* if father isn't the real parent, then ptrace must be enabled */
 		BUG_ON(father != p->real_parent && !ptrace);
-
+		//如果子进程的real_parent指向当前进程，说明当前进程是真正的父进程
+		//那么直接调整子进程的real_parent为它的“继父”
 		if (father == p->real_parent) {
 			/* reparent with a reaper, real father it's us */
 			p->real_parent = reaper;
 			reparent_thread(p, father, 0);
 		} else {
-			/* reparent ptraced task to its real parent */
+			/* reparent ptraced task to its real parent
+			如果子进程的real_parent不是当前进程，那么说明当前进程是一个调试器
+			(调试器作为一个临时的父进程)，而子进程处于被调试状态，现在调试器要退出
+			了，所以调整子进程的 parent指向它的real_parent。如果子进程也要退出，
+			就向它真正的父进程发送信号
+			 */
 			__ptrace_unlink (p);
 			if (p->exit_state == EXIT_ZOMBIE && p->exit_signal != -1 &&
 			    thread_group_empty(p))
@@ -720,7 +731,8 @@ static void forget_original_parent(struct task_struct *father)
 		if (unlikely(ptrace && p->exit_state == EXIT_ZOMBIE && p->exit_signal == -1))
 			list_add(&p->ptrace_list, &ptrace_dead);
 	}
-
+	//如果当前进程要退出，有些子进程正在被调试，这些被调试的子进程的real_parent
+	//指向自己，而 parent指向调试器，现在调整它们的 real_parent指向“继父”进程
 	list_for_each_entry_safe(p, n, &father->ptrace_children, ptrace_list) {
 		p->real_parent = reaper;
 		reparent_thread(p, father, 1);
@@ -746,7 +758,10 @@ static void exit_notify(struct task_struct *tsk)
 	int state;
 	struct task_struct *t;
 	struct pid *pgrp;
-
+	//当进程退出时，如果有一个信号未处理，那么需要查看当前进程是否在某个进程组中
+	//如果是就需要唤醒进程组中的其他进程，“委托”它来处理这个信号。什么时候会出现这
+	//种情况呢？例如：当前进程在执行do_exit过程中，产生了一个中断，而在中断处理
+	//过程中，向该进程发送了一个信号，当中断返回再次调度该进程时，就出现了这种情况
 	if (signal_pending(tsk) && !(tsk->signal->flags & SIGNAL_GROUP_EXIT)
 	    && !thread_group_empty(tsk)) {
 		/*
@@ -773,6 +788,7 @@ static void exit_notify(struct task_struct *tsk)
 	 *	as a result of our exiting, and if they have any stopped
 	 *	jobs, send them a SIGHUP and then a SIGCONT.  (POSIX 3.2.2.2)
 	 */
+	//调整亲缘关系的相关链表
 	forget_original_parent(tsk);
 	exit_task_namespaces(tsk);
 
@@ -821,6 +837,10 @@ static void exit_notify(struct task_struct *tsk)
 	/* If something other than our normal parent is ptracing us, then
 	 * send it a SIGCHLD instead of honoring exit_signal.  exit_signal
 	 * only has special meaning to our real parent.
+	 * 向父进程发送信号，exit_signal是进程结束时需要向父进程发送的信号，
+	 * 如果是-1，表示没有进程指定该进程结束时要发送什么信号，那么就发送
+	 * 默认SIGCHLD，如果当前进程在一个进程组中，则要等进程组中最后一个进程退出时，
+	 * 才发送该信号
 	 */
 	if (tsk->exit_signal != -1 && thread_group_empty(tsk)) {
 		int signal = tsk->parent == tsk->real_parent ? tsk->exit_signal : SIGCHLD;
@@ -834,7 +854,7 @@ static void exit_notify(struct task_struct *tsk)
 	if (tsk->exit_signal == -1 && likely(!tsk->ptrace))
 		state = EXIT_DEAD;
 	tsk->exit_state = state;
-
+	//唤醒在该进程上等待的进程
 	if (thread_group_leader(tsk) &&
 	    tsk->signal->notify_count < 0 &&
 	    tsk->signal->group_exit_task)
@@ -916,12 +936,12 @@ fastcall NORET_TYPE void do_exit(long code)
 	profile_task_exit(tsk);
 
 	WARN_ON(atomic_read(&tsk->fs_excl));
-
+	//中断环境不允许退出
 	if (unlikely(in_interrupt()))
 		panic("Aiee, killing interrupt handler!");
 	if (unlikely(!tsk->pid))
 		panic("Attempted to kill the idle task!");
-
+	//如果一个被调试的进程退出，就向父进程(调试器)发送信号
 	if (unlikely(current->ptrace & PT_TRACE_EXIT)) {
 		current->ptrace_message = code;
 		ptrace_notify((PTRACE_EVENT_EXIT << 8) | SIGTRAP);
@@ -931,6 +951,8 @@ fastcall NORET_TYPE void do_exit(long code)
 	 * We're taking recursive faults here in do_exit. Safest is to just
 	 * leave this task alone and wait for reboot.
 	 */
+	//如果当前进程已经是退出状态，那么说明它已经调用过exit 一次了
+	//着一定是出问题了
 	if (unlikely(tsk->flags & PF_EXITING)) {
 		printk(KERN_ALERT
 			"Fixing recursive fault but reboot is needed!\n");
@@ -987,18 +1009,21 @@ fastcall NORET_TYPE void do_exit(long code)
 		tty_audit_exit();
 	if (unlikely(tsk->audit_context))
 		audit_free(tsk);
-
+	//设置进程退出码
 	tsk->exit_code = code;
 	taskstats_exit(tsk, group_dead);
-
+	//销毁进程的
 	exit_mm(tsk);
 
 	if (group_dead)
 		acct_process();
+	//信号量
 	exit_sem(tsk);
+	//文件系统
 	__exit_files(tsk);
 	__exit_fs(tsk);
 	check_stack_usage();
+	//进程的thread_struct 结构
 	exit_thread();
 	cgroup_exit(tsk, 1);
 	exit_keys(tsk);
@@ -1009,8 +1034,9 @@ fastcall NORET_TYPE void do_exit(long code)
 	module_put(task_thread_info(tsk)->exec_domain->module);
 	if (tsk->binfmt)
 		module_put(tsk->binfmt->module);
-
+	//销毁进程在proc 文件系统中的信息
 	proc_exit_connector(tsk);
+	//从进程的亲缘关系的链表中解除当前进程，并发送信号到父进程
 	exit_notify(tsk);
 #ifdef CONFIG_NUMA
 	mpol_free(tsk->mempolicy);

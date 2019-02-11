@@ -1919,12 +1919,15 @@ static void finish_task_switch(struct rq *rq, struct task_struct *prev)
 	 * be dropped twice.
 	 *		Manfred Spraul <manfred@colorfullife.com>
 	 */
+	//取进程prev 的状态
 	prev_state = prev->state;
 	finish_arch_switch(prev);
 	finish_lock_switch(rq, prev);
 	fire_sched_in_preempt_notifiers(current);
 	if (mm)
 		mmdrop(mm);
+	//如果prev进程为TASK_DEAD 状态，则释放它的task_struct和内核堆栈
+	//这样进程就彻底消失了
 	if (unlikely(prev_state == TASK_DEAD)) {
 		/*
 		 * Remove function-return probe instances associated with this
@@ -1982,11 +1985,12 @@ context_switch(struct rq *rq, struct task_struct *prev,
 	if (unlikely(!mm)) {
 		//被替换进程的active_mm作为内核线程使用的内存描述结构指针
 		next->active_mm = oldmm;
-		//将内存描述结构的使用技术+1
+		//将内存描述结构的使用计数+1
 		atomic_inc(&oldmm->mm_count);
 		enter_lazy_tlb(oldmm, next);
 	} else
 		//如果将要运行的进程不是内核线程，则切换到它的页表
+		//加载新进程mm->pgd到 CR3寄存器，这样就切换到了新进程的地址空间
 		switch_mm(oldmm, mm, next);
 
 	if (unlikely(!prev->mm)) {

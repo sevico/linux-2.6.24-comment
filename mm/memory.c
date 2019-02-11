@@ -430,7 +430,11 @@ copy_one_pte(struct mm_struct *dst_mm, struct mm_struct *src_mm,
 	pte_t pte = *src_pte;
 	struct page *page;
 
-	/* pte contains position in swap or file, so copy. */
+	/* pte contains position in swap or file, so copy. 
+		虚拟地址对应的页表被交换到磁盘上。需要注意的是，缺页中断可以从
+		磁盘交换分区调入内存，但是缺页中断所用的内存及页表是不可交换的
+		因此内核空间使用的页表是不可交换的
+	*/
 	if (unlikely(!pte_present(pte))) {
 		if (!pte_file(pte)) {
 			swp_entry_t entry = pte_to_swp_entry(pte);
@@ -462,6 +466,7 @@ copy_one_pte(struct mm_struct *dst_mm, struct mm_struct *src_mm,
 	 * If it's a COW mapping, write protect it both
 	 * in the parent and the child
 	 */
+	//如果是可写内存区域，则利用页表把这段内存区域设置为只读，从而实现 Copy On Write
 	if (is_cow_mapping(vm_flags)) {
 		ptep_set_wrprotect(src_mm, addr, src_pte);
 		pte = pte_wrprotect(pte);

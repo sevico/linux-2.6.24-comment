@@ -35,9 +35,12 @@
 #include <linux/pid_namespace.h>
 #include <linux/init_task.h>
 #include <linux/syscalls.h>
-
+//hash函数，nr 为 pid，ns 为进程 id 的 namespace，进程 id 的 namespace 是
+//为虚拟化准备的，例如OpenVZ,它允许同时在一台电脑上虚拟运行多个
+//操作系统，这样在不同的 namespace 中的不同进程，可以拥有相同的 pid
 #define pid_hashfn(nr, ns)	\
 	hash_long((unsigned long)nr + (unsigned long)ns, pidhash_shift)
+//hash 表的首地址
 static struct hlist_head *pid_hash;
 static int pidhash_shift;
 struct pid init_struct_pid = INIT_STRUCT_PID;
@@ -678,10 +681,11 @@ void __init pidhash_init(void)
 	printk("PID hash table entries: %d (order: %d, %Zd bytes)\n",
 		pidhash_size, pidhash_shift,
 		pidhash_size * sizeof(struct hlist_head));
-
+	//为 pid hash 表分配内存
 	pid_hash = alloc_bootmem(pidhash_size *	sizeof(*(pid_hash)));
 	if (!pid_hash)
 		panic("Could not alloc pidhash!\n");
+	//初始化链表
 	for (i = 0; i < pidhash_size; i++)
 		INIT_HLIST_HEAD(&pid_hash[i]);
 }
