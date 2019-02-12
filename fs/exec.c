@@ -1223,6 +1223,7 @@ int search_binary_handler(struct linux_binprm *bprm,struct pt_regs *regs)
 	    }
 	}
 #endif
+	//安全检查，当前默认为空函数
 	retval = security_bprm_check(bprm);
 	if (retval)
 		return retval;
@@ -1238,6 +1239,7 @@ int search_binary_handler(struct linux_binprm *bprm,struct pt_regs *regs)
 	retval = -ENOENT;
 	for (try=0; try<2; try++) {
 		read_lock(&binfmt_lock);
+		//formats执行加载器对象链表头，依次调用各个加载器的load_binary函数
 		list_for_each_entry(fmt, &formats, lh) {
 			int (*fn)(struct linux_binprm *, struct pt_regs *) = fmt->load_binary;
 			if (!fn)
@@ -1311,38 +1313,39 @@ int do_execve(char * filename,
 	sched_exec();
 
 	bprm->file = file;
+	//现在还不知道可执行文件格式，所以filename和interp都初始化为filename
 	bprm->filename = filename;
 	bprm->interp = filename;
-
+	//分配一个mm_struct
 	retval = bprm_mm_init(bprm);
 	if (retval)
 		goto out_file;
-
+	//计算参数的数量
 	bprm->argc = count(argv, MAX_ARG_STRINGS);
 	if ((retval = bprm->argc) < 0)
 		goto out_mm;
-
+	//计算环境变量的数量
 	bprm->envc = count(envp, MAX_ARG_STRINGS);
 	if ((retval = bprm->envc) < 0)
 		goto out_mm;
-
+	//提供安全检查，默认为空函数
 	retval = security_bprm_alloc(bprm);
 	if (retval)
 		goto out;
-
+	//主要作用是读取文件头部部分内容到bprm->buf中
 	retval = prepare_binprm(bprm);
 	if (retval < 0)
 		goto out;
-
+	//把用户态可执行文件名拷贝到内核bprm中
 	retval = copy_strings_kernel(1, &bprm->filename, bprm);
 	if (retval < 0)
 		goto out;
-
+	//把用户态的环境变量复制到bprm中
 	bprm->exec = bprm->p;
 	retval = copy_strings(bprm->envc, envp, bprm);
 	if (retval < 0)
 		goto out;
-
+	//用户态参数复制到bprm中
 	env_p = bprm->p;
 	retval = copy_strings(bprm->argc, argv, bprm);
 	if (retval < 0)

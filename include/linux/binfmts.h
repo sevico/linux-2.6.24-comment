@@ -65,9 +65,15 @@ struct linux_binprm{
  */
 struct linux_binfmt {
 	struct list_head lh;
+	//装载器可以是一个内核模块动态加载，module为模块指针
 	struct module *module;
+	//加载函数
 	int (*load_binary)(struct linux_binprm *, struct  pt_regs * regs);
+	//库加载函数
 	int (*load_shlib)(struct file *);
+	//dump函数，当一个程序异常退出时，调用该函数生成一个core文件
+	//它把程序的内存镜像 dump到磁盘上，之后可以用gdb等调试器对这个
+	//文件进行分析
 	int (*core_dump)(long signr, struct pt_regs *regs, struct file *file, unsigned long limit);
 	unsigned long min_coredump;	/* minimal dump size */
 	int hasvdso;
