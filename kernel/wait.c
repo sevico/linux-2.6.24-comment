@@ -23,8 +23,11 @@ void fastcall add_wait_queue(wait_queue_head_t *q, wait_queue_t *wait)
 	unsigned long flags;
 
 	wait->flags &= ~WQ_FLAG_EXCLUSIVE;
+	//为了防止竞争。加锁
 	spin_lock_irqsave(&q->lock, flags);
+	//添加至队列
 	__add_wait_queue(q, wait);
+	//解锁
 	spin_unlock_irqrestore(&q->lock, flags);
 }
 EXPORT_SYMBOL(add_wait_queue);

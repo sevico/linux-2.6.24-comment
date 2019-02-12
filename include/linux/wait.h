@@ -63,7 +63,7 @@ struct task_struct;
 	.private	= tsk,						\
 	.func		= default_wake_function,			\
 	.task_list	= { NULL, NULL } }
-
+//name:等待队列的名字。Tsk：所要操作的task
 #define DECLARE_WAITQUEUE(name, tsk)					\
 	wait_queue_t name = __WAITQUEUE_INITIALIZER(name, tsk)
 

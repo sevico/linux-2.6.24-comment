@@ -141,12 +141,17 @@ static void delayed_put_task_struct(struct rcu_head *rhp)
 {
 	put_task_struct(container_of(rhp, struct task_struct, rcu));
 }
-
+/**
+ * 释放进程描述符。如果进程已经是僵死状态，就会回收它占用的RAM。
+ */
 void release_task(struct task_struct * p)
 {
 	struct task_struct *leader;
 	int zap_leader;
 repeat:
+	/**
+	 * 递减进程拥有者的进程个数。
+	 */
 	atomic_dec(&p->user->processes);
 	proc_flush_task(p);
 	write_lock_irq(&tasklist_lock);
@@ -1140,7 +1145,11 @@ static int eligible_child(pid_t pid, int options, struct task_struct *p)
 {
 	int err;
 	struct pid_namespace *ns;
-
+	//根据PID判断是不是我们要wait的子进程
+	//pid >0:等待的子程程的进程号等于pid
+　　 //pid = 0:等待进程组号等于当前进程组号的所有子进程
+　　 //pid < -1 :等待任何进程组号等于pid绝对值的子进程
+　　 //pid == -1 :等待任何子进程
 	ns = current->nsproxy->pid_ns;
 	if (pid > 0) {
 		if (task_pid_nr_ns(p, ns) != pid)
@@ -1157,6 +1166,7 @@ static int eligible_child(pid_t pid, int options, struct task_struct *p)
 	 * Do not consider detached threads that are
 	 * not ptraced:
 	 */
+	//如果子进程exit_signal ==-1且没有被跟踪.那不会对子进程进行回收
 	if (p->exit_signal == -1 && !p->ptrace)
 		return 0;
 
@@ -1172,6 +1182,7 @@ static int eligible_child(pid_t pid, int options, struct task_struct *p)
 	 * Do not consider thread group leaders that are
 	 * in a non-empty thread group:
 	 */
+	//如果子进程是进程组leader,且进程组不为空
 	if (delay_group_leader(p))
 		return 2;
 
@@ -1222,17 +1233,19 @@ static int wait_task_zombie(struct task_struct *p, int noreap,
 	struct pid_namespace *ns;
 
 	ns = current->nsproxy->pid_ns;
-
+	//WNOWAIT被设置.不需要释放子进程的资源,只要取相关信息即可
 	if (unlikely(noreap)) {
 		pid_t pid = task_pid_nr_ns(p, ns);
 		uid_t uid = p->uid;
 		int exit_code = p->exit_code;
 		int why, status;
-
+		//子进程不为EXIT_ZOMBIE .异常退出
 		if (unlikely(p->exit_state != EXIT_ZOMBIE))
 			return 0;
+		//没有退出信号具没有被跟踪.退出
 		if (unlikely(p->exit_signal == -1 && p->ptrace == 0))
 			return 0;
+		//增加引用计数
 		get_task_struct(p);
 		read_unlock(&tasklist_lock);
 		if ((exit_code & 0x7f) == 0) {
@@ -1242,6 +1255,7 @@ static int wait_task_zombie(struct task_struct *p, int noreap,
 			why = (exit_code & 0x80) ? CLD_DUMPED : CLD_KILLED;
 			status = exit_code & 0x7f;
 		}
+		//取相关信息
 		return wait_noreap_copyout(p, pid, uid, why,
 					   status, infop, ru);
 	}
@@ -1250,13 +1264,16 @@ static int wait_task_zombie(struct task_struct *p, int noreap,
 	 * Try to move the task's state to DEAD
 	 * only one thread is allowed to do this:
 	 */
+	//将子进程状态设为EXIT_DEAD状态
 	state = xchg(&p->exit_state, EXIT_DEAD);
+	//如果子进程不为EXIT_ZOMBIE状态,异常退出
 	if (state != EXIT_ZOMBIE) {
 		BUG_ON(state != EXIT_DEAD);
 		return 0;
 	}
 
 	/* traced means p->ptrace, but not vice versa */
+	//没有退出信号,且没有被跟踪
 	traced = (p->real_parent != p->parent);
 
 	if (likely(!traced)) {
@@ -1278,6 +1295,7 @@ static int wait_task_zombie(struct task_struct *p, int noreap,
 		 * as other threads in the parent group can be right
 		 * here reaping other children at the same time.
 		 */
+		//更新父进程的一些统计信息
 		spin_lock_irq(&p->parent->sighand->siglock);
 		psig = p->parent->signal;
 		sig = p->signal;
@@ -1317,6 +1335,7 @@ static int wait_task_zombie(struct task_struct *p, int noreap,
 	 * Now we are sure this task is interesting, and no other
 	 * thread can reap it because we set its state to EXIT_DEAD.
 	 */
+	//取得相关的退出信息
 	read_unlock(&tasklist_lock);
 
 	retval = ru ? getrusage(p, RUSAGE_BOTH, ru) : 0;
@@ -1348,16 +1367,19 @@ static int wait_task_zombie(struct task_struct *p, int noreap,
 		retval = put_user(p->uid, &infop->si_uid);
 	if (!retval)
 		retval = task_pid_nr_ns(p, ns);
-
+	//当前进程不是生父进程.则说明进程是被跟踪出去了
+　　 // TODO:子进程exit退出的时候,只会向其当前父进程发送信号的哦^_^
 	if (traced) {
 		write_lock_irq(&tasklist_lock);
 		/* We dropped tasklist, ptracer could die and untrace */
+		//将进程从跟踪链表中脱落,并设置父进程为生父进程
 		ptrace_unlink(p);
 		/*
 		 * If this is not a detached task, notify the parent.
 		 * If it's still not detached after that, don't release
 		 * it now.
 		 */
+		//如果允许发送信息,则给生父进程发送相关信号
 		if (p->exit_signal != -1) {
 			do_notify_parent(p, p->exit_signal);
 			if (p->exit_signal != -1) {
@@ -1367,6 +1389,7 @@ static int wait_task_zombie(struct task_struct *p, int noreap,
 		}
 		write_unlock_irq(&tasklist_lock);
 	}
+	//释放子进程的剩余资源
 	if (p != NULL)
 		release_task(p);
 
@@ -1385,7 +1408,7 @@ static int wait_task_stopped(struct task_struct *p, int delayed_group_leader,
 {
 	int retval, exit_code;
 	pid_t pid;
-
+	//进程退出状态码为零.没有相关退出信息
 	if (!p->exit_code)
 		return 0;
 	if (delayed_group_leader && !(p->ptrace & PT_PTRACED) &&
@@ -1404,16 +1427,20 @@ static int wait_task_stopped(struct task_struct *p, int delayed_group_leader,
 	 * possibly take page faults for user memory.
 	 */
 	pid = task_pid_nr_ns(p, current->nsproxy->pid_ns);
+	//正在取task里面的信息,为了防止意外释放,先增加它的引用计数
 	get_task_struct(p);
 	read_unlock(&tasklist_lock);
-
+	//如果WNOWAIT 被定义
 	if (unlikely(noreap)) {
 		uid_t uid = p->uid;
 		int why = (p->ptrace & PT_PTRACED) ? CLD_TRAPPED : CLD_STOPPED;
 
 		exit_code = p->exit_code;
+		//退出状态码为零,但是过程已经处于退出状态中(僵尸或者是死进程)
 		if (unlikely(!exit_code) || unlikely(p->exit_state))
 			goto bail_ref;
+		//把子进程的各项信息保存起来
+		//返回值是退出子进程的PID
 		return wait_noreap_copyout(p, pid, uid,
 					   why, exit_code,
 					   infop, ru);
@@ -1426,6 +1453,8 @@ static int wait_task_stopped(struct task_struct *p, int delayed_group_leader,
 	 * it.  It must also be done with the write lock held to prevent a
 	 * race with the EXIT_ZOMBIE case.
 	 */
+	//如果子进程没有退出.只要取子进程的退出信息,再清除子进程的退出信息即可
+	//
 	exit_code = xchg(&p->exit_code, 0);
 	if (unlikely(p->exit_state)) {
 		/*
@@ -1458,11 +1487,12 @@ bail_ref:
 	}
 
 	/* move to end of parent's list to avoid starvation */
+	//将子进程加到父进程子链表的末尾
 	remove_parent(p);
 	add_parent(p);
 
 	write_unlock_irq(&tasklist_lock);
-
+	//收集相关的信息
 	retval = ru ? getrusage(p, RUSAGE_BOTH, ru) : 0;
 	if (!retval && stat_addr)
 		retval = put_user((exit_code << 8) | 0x7f, stat_addr);
@@ -1482,6 +1512,7 @@ bail_ref:
 		retval = put_user(p->uid, &infop->si_uid);
 	if (!retval)
 		retval = pid;
+	//减少task的引用计数
 	put_task_struct(p);
 
 	BUG_ON(!retval);
@@ -1559,27 +1590,38 @@ static inline int my_ptrace_child(struct task_struct *p)
 static long do_wait(pid_t pid, int options, struct siginfo __user *infop,
 		    int __user *stat_addr, struct rusage __user *ru)
 {
+	//初始化一个等待队列
 	DECLARE_WAITQUEUE(wait, current);
 	struct task_struct *tsk;
 	int flag, retval;
 	int allowed, denied;
-
+	//把等待队列wait添加到wait_childexit 链表上，do_notify_parent
+	//函数根据这个链表找到等待的父进程
 	add_wait_queue(&current->signal->wait_chldexit,&wait);
 repeat:
 	/*
 	 * We will set this flag if we see any child that might later
 	 * match our criteria, even if we are not able to reap it yet.
+	 * 当flag 被设置时，说明找到了由 pid指定的子进程，但是这些子进程的当前
+	 * 状态，可能不满足退出条件，所以在下面“schedule();”，当前进程需要让出
+	 * CPU，知道子进程退出
 	 */
 	flag = 0;
 	allowed = denied = 0;
+	//把当前进程设置为可中断等待状态
 	current->state = TASK_INTERRUPTIBLE;
 	read_lock(&tasklist_lock);
 	tsk = current;
+	//如果当前进程是一个轻权进程，那么需要在进程组每一个进程的子进程链表
+	//中寻找 pid指定的进程。也就是说，要寻找的不仅仅是“自己的儿子”，还包括
+	//“自己兄弟的儿子”，这个 do-while 循环就处理进程组的这种情况
 	do {
 		struct task_struct *p;
 		int ret;
-
+		//当前进程可能有多个子进程，在这些子进程中寻找 pid指定的子进程
+		//例如当 pid 为-1时，就要循环处理每一个子进程
 		list_for_each_entry(p, &tsk->children, sibling) {
+			//判断是否是我们要wait 的子进程
 			ret = eligible_child(pid, options, p);
 			if (!ret)
 				continue;
@@ -1591,6 +1633,7 @@ repeat:
 			allowed = 1;
 
 			switch (p->state) {
+			//子进程为TASK_TRACED.即处于跟踪状态。则取子进程的相关信息
 			case TASK_TRACED:
 				/*
 				 * When we hit the race with PTRACE_ATTACH,
@@ -1599,8 +1642,14 @@ repeat:
 				 * our ptrace_children list, so we need to
 				 * set the flag here to avoid a spurious ECHILD
 				 * when the race happens with the only child.
+				 * 要等待的子进程处于被调试状态，此时子进程的信号将发给
+				 * 调试器进程，如果当前进程就是调试器，则my_ptrace_child
+				 * 返回1，如果当前进程不是调试器进程就不能进行处理。于是就像代码
+				 * 注释中说的 FALLTHROUGH，继续向下执行
 				 */
 				flag = 1;
+				//判断是否是被父进程跟踪的子进程
+				//如果是则返回1..不是返回0
 				if (!my_ptrace_child(p))
 					continue;
 				/*FALLTHROUGH*/
@@ -1609,33 +1658,61 @@ repeat:
 				 * It's stopped now, so it might later
 				 * continue, exit, or stop again.
 				 */
+				//WUNTRACED:子进程是停止的,也马上返回
+				//没有定义WUNTRACED 参数.继续遍历子进程
+　　　　　　　　　 /*从此看出.生父进程是不会处理STOP状态的子进程的.只有
+　　　　　　　　　 发起跟踪的进程才会
+　　　　　　　　　 　*/
+				//如果当前进程没有指定WUNTRACED选项，或者子进程不是被当前进程
+				//调试的进程，就不处理。可以看出只有调试器才会
+				//等待TASK_STOPPED状态的子进程
 				flag = 1;
 				if (!(options & WUNTRACED) &&
 				    !my_ptrace_child(p))
 					continue;
+				//WNOWAIT:不会将zombie子进程的退出状态撤销
+				//下次调用wait系列函数的时候还可以继续获得这个退出状态
+				//子进程已经满足条件，从子进程获取必要的信息，如果成功，
+				//当前进程就可以跳转到end处直接返回了
 				retval = wait_task_stopped(p, ret == 2,
 							   (options & WNOWAIT),
 							   infop,
 							   stat_addr, ru);
+				//重试
 				if (retval == -EAGAIN)
 					goto repeat;
+				//成功，父进程可以返回了
 				if (retval != 0) /* He released the lock.  */
 					goto end;
 				break;
 			default:
 			// case EXIT_DEAD:
+				//不需要处理DEAD状态
+				//如果子进程的退出状态处于EXIT_DEAD这个进程早已退出，不需要处理
+				//因此寻找下一个子进程(主要是为了处理像 pid 为-1这种情况)
 				if (p->exit_state == EXIT_DEAD)
 					continue;
 			// case EXIT_ZOMBIE:
+				//子进程为僵尸状态
+				//如果子进程的退出状态为EXIT_ZOMBIE，那么说明它正在等待调用wait
+				//的父进程来“收拾残局”，那么就省事了，直接获取信息然后返回
 				if (p->exit_state == EXIT_ZOMBIE) {
 					/*
 					 * Eligible but we cannot release
 					 * it yet:
 					 */
+					/*
+					由于wait_task_zombie会调用release_task释放某些资源，但是
+					如果 pid 为-1，并且子进程p 是一个进程组中的 Group Leader进程，
+					而且这个进程组中还有其他进程，这样虽然wait 条件可能会满足，但是
+					却不能释放这些资源，这种情况下eligible_child返回2，从而
+					跳转到check_continued执行
+					 */
 					if (ret == 2)
 						goto check_continued;
 					if (!likely(options & WEXITED))
 						continue;
+					//从子进程中获取信息，如果成功从end处返回
 					retval = wait_task_zombie(
 						p, (options & WNOWAIT),
 						infop, stat_addr, ru);
@@ -1652,14 +1729,29 @@ check_continued:
 				flag = 1;
 				if (!unlikely(options & WCONTINUED))
 					continue;
+				//从子进程中获取信息，如果成功从end处返回
+				//不会调用release_task释放子进程的相关资源
 				retval = wait_task_continued(
 					p, (options & WNOWAIT),
 					infop, stat_addr, ru);
 				if (retval != 0) /* He released the lock.  */
 					goto end;
+				//如果执行check_continued处这里，说明pid等于-1
+				//而当前子进程不满足条件，那么继续处理其他子进程
 				break;
 			}
 		}
+		//遍历被跟踪出去的子进程
+		//从这里可以看出.如果一个子进程被跟踪出去了.那么子进程的退出
+		//操作并不是由生父进程进行了
+		/*
+		如果当前进程建立了一个子进程，之后某个调试器附加到这个子进程上，
+		这样子进程处于被调试状态，这时子进程就临时地变成了调试器的“儿子”，
+		但是同时子进程被链接到当前进程的 ptrace_children 链表中。
+		如果在第 41 行对子进程链表都遍历完了(flag=0 说明在list_for_each_entry循环中，
+		在子进程链表中，没有一个满足条件的子进程）还没有找到合适的子进程，
+		那么需要考虑查看 ptrace_listchildren 链表上是否有合适的进程
+		 */
 		if (!flag) {
 			list_for_each_entry(p, &tsk->ptrace_children,
 					    ptrace_list) {
@@ -1669,20 +1761,38 @@ check_continued:
 				break;
 			}
 		}
+		//__WNOTHREAD标志表示不需要到进程组中的其他进程寻找 pid 指定的进程
 		if (options & __WNOTHREAD)
 			break;
+		//也有可能是进程中的线程在wait其fork出来的子进程
 		tsk = next_thread(tsk);
 		BUG_ON(tsk->signal != current->signal);
 	} while (tsk != current);
 
 	read_unlock(&tasklist_lock);
+	/*
+	如果上面的 do-while 循环结束，运行到这里，并且 flag 不为 0, 
+	说明当前进程存在由 pid 指定的子进程，但是子进程的当前状态却不是当前进程（父进程）所期待的状态，
+	所以当前进程可能要被阻塞了，直到子进程进入这种状态。
+	 */
 	if (flag) {
 		retval = 0;
+		//如果定义了WHNOHANG:马上退出
 		if (options & WNOHANG)
 			goto end;
 		retval = -ERESTARTSYS;
+		/*
+		再次检査当前进程是否有信号，这期间子进程可能进入了所期待的状态，
+		那么就不需要让出 CPU 了。例如：当前进程执行到if (flag)，
+		某个中断把子进程唤醒，并且 CPU 调度子进程运行，子进程退出，
+		当再次调度到当前进程从if (flag)继续执行时，条件就满足了。
+		 */
 		if (signal_pending(current))
 			goto end;
+		/*
+		让出 CPU，此时其他进程开始执行，当有信号时，例如子进程退出发送信号给父进程，当前进程将被唤醒，
+		继续执行，转到 repeat 处重新检査，并从子进程中获取状态，如果成功，就从 end 处返回了。
+		 */
 		schedule();
 		goto repeat;
 	}
@@ -1690,8 +1800,10 @@ check_continued:
 	if (unlikely(denied) && !allowed)
 		retval = denied;
 end:
+	//将进程设为运行状态,从等待队列中移除
 	current->state = TASK_RUNNING;
 	remove_wait_queue(&current->signal->wait_chldexit,&wait);
+	//复制信息到用户空间
 	if (infop) {
 		if (retval > 0)
 		retval = 0;
@@ -1757,7 +1869,8 @@ asmlinkage long sys_wait4(pid_t pid, int __user *stat_addr,
 			  int options, struct rusage __user *ru)
 {
 	long ret;
-
+	//options的标志为须为WNOHANG…__WALL的组合，否则会出错
+	//相关标志的作用在do_wait()中再进行分析
 	if (options & ~(WNOHANG|WUNTRACED|WCONTINUED|
 			__WNOTHREAD|__WCLONE|__WALL))
 		return -EINVAL;
