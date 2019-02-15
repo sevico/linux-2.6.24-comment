@@ -232,13 +232,17 @@ static inline void set_task_cfs_rq(struct task_struct *p, unsigned int cpu) { }
 
 /* CFS-related fields in a runqueue */
 struct cfs_rq {
+	//当前就绪队列进程的总权重
 	struct load_weight load;
+	//当前就绪队列中的总进程数
 	unsigned long nr_running;
-
+	//实际时钟
 	u64 exec_clock;
+	//当前队列中运行时间最小的虚拟时间
 	u64 min_vruntime;
 
 	struct rb_root tasks_timeline;
+	//红黑树最左子树节点
 	struct rb_node *rb_leftmost;
 	struct rb_node *rb_load_balance_curr;
 	/* 'curr' points to currently running entity on this cfs_rq.
@@ -765,19 +769,25 @@ static inline void resched_task(struct task_struct *p)
  * Shift right and round:
  */
 #define SRR(x, y) (((x) + (1UL << ((y) - 1))) >> (y))
-
+//delta_exec是实际运行时间，weight是基准因子1024，lw 是进程
+//的load_weight结构
 static unsigned long
 calc_delta_mine(unsigned long delta_exec, unsigned long weight,
 		struct load_weight *lw)
 {
 	u64 tmp;
-
+	//万ー inv_weight没有初始化好，就根据weight计算inv_weight 的值，
+	//这种情况很少发生。这个式子本应该为（WMULT_CONST+lw-> weight/2)/lw->weight,
+	//但是由于 WMULT_CONST 已经是 32 位数的最大值，再加就要溢出了，故做等价变换。
 	if (unlikely(!lw->inv_weight))
 		lw->inv_weight = (WMULT_CONST - lw->weight/2) / lw->weight + 1;
-
+	//基准因子weight为1024
 	tmp = (u64)delta_exec * weight;
 	/*
 	 * Check whether we'd overflow the 64-bit multiplication:
+	 * 由于tmp可能超过32位，这时再乘以一个 32 位的数，可能超出 64 位，所以在这种
+	情况下，先把tmp右移 16 位，然后再乘以inv_weight,最后再右移 16 位
+	这也是右移 32 位的等价变换。否则直接计算。
 	 */
 	if (unlikely(tmp > WMULT_CONST))
 		tmp = SRR(SRR(tmp, WMULT_SHIFT/2) * lw->inv_weight,
@@ -3535,6 +3545,7 @@ void scheduler_tick(void)
 	rq->tick_timestamp = rq->clock;
 	update_cpu_load(rq);
 	//根据不同的调度算法，来计算时间片
+	//cfs的task_tick函数为task_tick_fair()
 	if (curr != rq->idle) /* FIXME: needed? */
 		curr->sched_class->task_tick(rq, curr);
 	spin_unlock(&rq->lock);
@@ -4133,17 +4144,19 @@ void set_user_nice(struct task_struct *p, long nice)
 		goto out_unlock;
 	}
 	on_rq = p->se.on_rq;
+	//如果进程在就绪队列中，就从就绪队列摘下来
 	if (on_rq) {
 		dequeue_task(rq, p, 0);
 		dec_load(rq, p);
 	}
-
+	//新的静态优先级
 	p->static_prio = NICE_TO_PRIO(nice);
+	//根据新优先级设置权重
 	set_load_weight(p);
 	old_prio = p->prio;
 	p->prio = effective_prio(p);
 	delta = p->prio - old_prio;
-
+	//如果以前在就绪队列中，就再次入队，对于在等待队列的进程，则不必要执行
 	if (on_rq) {
 		enqueue_task(rq, p, 0);
 		inc_load(rq, p);
@@ -4151,6 +4164,8 @@ void set_user_nice(struct task_struct *p, long nice)
 		 * If the task increased its priority or is running and
 		 * lowered its priority, then reschedule its CPU:
 		 */
+		//优先级改变后，请求重新调度，例如目标进程的优先级比当前进程的
+		//优先级还高，就需要把CPU给目标进程了
 		if (delta < 0 || (delta > 0 && task_running(rq, p)))
 			resched_task(rq->curr);
 	}
@@ -4191,24 +4206,26 @@ asmlinkage long sys_nice(int increment)
 	 * We don't have to worry. Conceptually one call occurs first
 	 * and we have a single winner.
 	 */
+	//普通进程的静态优先级范围是100~139，共40个级别
+	//当increment为负数时，表示增大优先级，为正数表示减小优先级
 	if (increment < -40)
 		increment = -40;
 	if (increment > 40)
 		increment = 40;
-
+	//static_prio-120+increment得到nice值，范围从-20~19
 	nice = PRIO_TO_NICE(current->static_prio) + increment;
 	if (nice < -20)
 		nice = -20;
 	if (nice > 19)
 		nice = 19;
-
+	//检测当前进程是否有权限提高进程优先级
 	if (increment < 0 && !can_nice(current, nice))
 		return -EPERM;
-
+	//安全检查函数，默认为空函数
 	retval = security_task_setnice(current, nice);
 	if (retval)
 		return retval;
-
+	//设置nice值
 	set_user_nice(current, nice);
 	return 0;
 }

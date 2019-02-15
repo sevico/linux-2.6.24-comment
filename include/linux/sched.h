@@ -877,13 +877,14 @@ struct sched_entity {
 	struct rb_node		run_node;
 //调度实体是否在运行队列上
 	unsigned int		on_rq;
-//调度实体的开始运行时间
+//调度实体的开始实际运行时间
 	u64			exec_start;
 //调度实体的总运行时间
 	u64			sum_exec_runtime;
-//调度实体的虚拟运行时间
+//调度实体投入运行的虚拟运行时间
 	u64			vruntime;
 //进程在切换CPU时的sum_exec_runtime值
+//进程前一次投入运行的总实际时间
 	u64			prev_sum_exec_runtime;
 
 #ifdef CONFIG_SCHEDSTATS
