@@ -37,14 +37,15 @@ static struct kmem_cache *idr_layer_cache;
 
 static struct idr_layer *alloc_layer(struct idr *idp)
 {
+	//定义一个idr_layer指针
 	struct idr_layer *p;
 	unsigned long flags;
 
 	spin_lock_irqsave(&idp->lock, flags);
-	if ((p = idp->id_free)) {
-		idp->id_free = p->ary[0];
-		idp->id_free_cnt--;
-		p->ary[0] = NULL;
+	if ((p = idp->id_free)) {//根free获取一个空闲idr_layer
+		idp->id_free = p->ary[0];//idr空闲链表指针指向第二个idr_layer
+		idp->id_free_cnt--;//idr的空闲idr_layer个数减1(14-1)
+		p->ary[0] = NULL;//断开第一个idr_layer和第二个idr_layer的联系
 	}
 	spin_unlock_irqrestore(&idp->lock, flags);
 	return(p);
@@ -104,9 +105,10 @@ static void idr_mark_full(struct idr_layer **pa, int id)
  */
 int idr_pre_get(struct idr *idp, gfp_t gfp_mask)
 {
+	//IDR_FREE_MAX=14
 	while (idp->id_free_cnt < IDR_FREE_MAX) {
-		struct idr_layer *new;
-		new = kmem_cache_alloc(idr_layer_cache, gfp_mask);
+		struct idr_layer *new;//定义新的idr_layer结构体指针
+		new = kmem_cache_alloc(idr_layer_cache, gfp_mask);//分配*new内存空间
 		if (new == NULL)
 			return (0);
 		free_layer(idp, new);
@@ -124,21 +126,21 @@ static int sub_alloc(struct idr *idp, int *starting_id, struct idr_layer **pa)
 
 	id = *starting_id;
  restart:
-	p = idp->top;
-	l = idp->layers;
-	pa[l--] = NULL;
+	p = idp->top;//根top
+	l = idp->layers;//l=1
+	pa[l--] = NULL;//p[1]=NULL;l=0
 	while (1) {
 		/*
 		 * We run around this while until we reach the leaf node...
 		 */
-		n = (id >> (IDR_BITS*l)) & IDR_MASK;
-		bm = ~p->bitmap;
-		m = find_next_bit(&bm, IDR_SIZE, n);
-		if (m == IDR_SIZE) {
+		n = (id >> (IDR_BITS*l)) & IDR_MASK;//计算对应的n值,属于[0,31]
+		bm = ~p->bitmap;//取反位图
+		m = find_next_bit(&bm, IDR_SIZE, n);//>>>1 find_next_bit 位图中偏移量为n处查找'1'
+		if (m == IDR_SIZE) {//位图满了
 			/* no space available go back to previous layer. */
-			l++;
+			l++; //层数+1
 			oid = id;
-			id = (id | ((1 << (IDR_BITS * l)) - 1)) + 1;
+			id = (id | ((1 << (IDR_BITS * l)) - 1)) + 1; //id或上掩码再+1
 
 			/* if already at the top layer, we need to grow */
 			if (!(p = pa[l])) {
@@ -155,28 +157,29 @@ static int sub_alloc(struct idr *idp, int *starting_id, struct idr_layer **pa)
 			else
 				goto restart;
 		}
-		if (m != n) {
+		if (m != n) {//期望的n值被占用,但可找到可用的m值
 			sh = IDR_BITS*l;
-			id = ((id >> sh) ^ n ^ m) << sh;
+			id = ((id >> sh) ^ n ^ m) << sh;//>>>2 重新计算id值
 		}
 		if ((id >= MAX_ID_BIT) || (id < 0))
 			return -3;
-		if (l == 0)
+		//一层层循环计算直到到达叶子处l才为0
+		if (l == 0)//l==0跳出while循环
 			break;
 		/*
 		 * Create the layer below if it is missing.
 		 */
-		if (!p->ary[m]) {
-			if (!(new = alloc_layer(idp)))
+		if (!p->ary[m]) {//叶子m为空
+			if (!(new = alloc_layer(idp)))//从空闲链表拿一个idr_layer
 				return -1;
-			p->ary[m] = new;
-			p->count++;
+			p->ary[m] = new;//叶子m指向新链表
+			p->count++;//使用计数加1
 		}
-		pa[l--] = p;
-		p = p->ary[m];
+		pa[l--] = p;//pa[大]=节点
+		p = p->ary[m];//p=节点->叶子m
 	}
 
-	pa[l] = p;
+	pa[l] = p;//pa[小]=叶子
 	return id;
 }
 
@@ -187,47 +190,56 @@ static int idr_get_empty_slot(struct idr *idp, int starting_id,
 	int layers, v, id;
 	unsigned long flags;
 
-	id = starting_id;
+	id = starting_id;//按常规出牌吧,假设这个为0
 build_up:
-	p = idp->top;
-	layers = idp->layers;
-	if (unlikely(!p)) {
-		if (!(p = alloc_layer(idp)))
+	p = idp->top;//根top指向的idr_layer NULL
+	layers = idp->layers;//获取layers层数量(0)
+	if (unlikely(!p)) {//第一次运行idp->top=NULL,所以if条件为真
+		if (!(p = alloc_layer(idp))) //从根free中获取一个idr_layer14
 			return -1;
+		//layers层数量设为1
 		layers = 1;
 	}
 	/*
 	 * Add a new layer to the top of the tree if the requested
 	 * id is larger than the currently allocated space.
 	 */
+	 //layers<6 && id>=2^(layers*5) 看需不需要增加层数
+	 //如果id值超过或等于对应层所能容纳的最大数,则进入循环
 	while ((layers < (MAX_LEVEL - 1)) && (id >= (1 << (layers*IDR_BITS)))) {
-		layers++;
+		layers++;//增加层数量
+		//0~31没使用,直接使用32就属于这种情况
 		if (!p->count)
 			continue;
+		//空闲链表中获取新的idr_layer
 		if (!(new = alloc_layer(idp))) {
 			/*
 			 * The allocation failed.  If we built part of
 			 * the structure tear it down.
 			 */
-			spin_lock_irqsave(&idp->lock, flags);
-			for (new = p; p && p != idp->top; new = p) {
+			spin_lock_irqsave(&idp->lock, flags);//分配失败,--空闲idr_layer链表缺货
+			for (new = p; p && p != idp->top; new = p) {//p指针还原
 				p = p->ary[0];
 				new->ary[0] = NULL;
 				new->bitmap = new->count = 0;
-				__free_layer(idp, new);
+				__free_layer(idp, new);//分配更多空闲链表
 			}
 			spin_unlock_irqrestore(&idp->lock, flags);
 			return -1;
 		}
-		new->ary[0] = p;
-		new->count = 1;
-		if (p->bitmap == IDR_FULL)
-			__set_bit(0, &new->bitmap);
-		p = new;
+		new->ary[0] = p;//新的idr_layer->ary[0]指向旧的idr_layer
+		new->count = 1;//新的idr_layer计数加1
+		if (p->bitmap == IDR_FULL)//若旧的(叶子)idr_layer的id全用过了
+			__set_bit(0, &new->bitmap);//那么标记下新(父)idr_layer位图的第0位
+		p = new;//根top指向新的idr_layer
 	}
+	//根top指向idr_layer14
 	idp->top = p;
+	//设置更新idr->layers层数量
 	idp->layers = layers;
+	//以上部分主要处理layer相关,以下部分主要处理id相
 	v = sub_alloc(idp, &id, pa);
+	//该层id号全用完了,必须扩大idr_layer层数量
 	if (v == -2)
 		goto build_up;
 	return(v);
@@ -235,17 +247,21 @@ build_up:
 
 static int idr_get_new_above_int(struct idr *idp, void *ptr, int starting_id)
 {
+	//MAX_LEVEL=7
 	struct idr_layer *pa[MAX_LEVEL];
 	int id;
-
+	//-->idr_get_empty_slot
 	id = idr_get_empty_slot(idp, starting_id, pa);
 	if (id >= 0) {
 		/*
 		 * Successfully found an empty slot.  Install the user
 		 * pointer and mark the slot full.
 		 */
+		 //pa[0]->ary[0]=ptr 也就是idr_layer14->ary[0]=ptr
 		pa[0]->ary[id & IDR_MASK] = (struct idr_layer *)ptr;
+		//设置其位图-->走完0过场的效果见图c
 		pa[0]->count++;
+		//设置其位图
 		idr_mark_full(pa, id);
 	}
 
@@ -466,8 +482,8 @@ void *idr_find(struct idr *idp, int id)
 	int n;
 	struct idr_layer *p;
 
-	n = idp->layers * IDR_BITS;
-	p = idp->top;
+	n = idp->layers * IDR_BITS;//计算最外层的n值
+	p = idp->top;//获取根top
 
 	/* Mask off upper bits we don't use for the search. */
 	id &= MAX_ID_MASK;
@@ -475,9 +491,9 @@ void *idr_find(struct idr *idp, int id)
 	if (id >= (1 << n))
 		return NULL;
 
-	while (n > 0 && p) {
+	while (n > 0 && p) {//循环一层层查找
 		n -= IDR_BITS;
-		p = p->ary[(id >> n) & IDR_MASK];
+		p = p->ary[(id >> n) & IDR_MASK];//一次获取an ... a0
 	}
 	return((void *)p);
 }
