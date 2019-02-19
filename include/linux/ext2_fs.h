@@ -222,7 +222,9 @@ struct ext2_group_desc
  * Structure of an inode on the disk
  */
 struct ext2_inode {
+	//文件模式，通过chmod命令修改
 	__le16	i_mode;		/* File mode */
+	//文件拥有者的用户id，可以用过chown命令修改
 	__le16	i_uid;		/* Low 16 bits of Owner Uid */
 	__le32	i_size;		/* Size in bytes */
 	__le32	i_atime;	/* Access time */
@@ -231,6 +233,7 @@ struct ext2_inode {
 	__le32	i_dtime;	/* Deletion Time */
 	__le16	i_gid;		/* Low 16 bits of Group Id */
 	__le16	i_links_count;	/* Links count */
+	//文件数据区占用的块数
 	__le32	i_blocks;	/* Blocks count */
 	__le32	i_flags;	/* File flags */
 	union {
@@ -244,6 +247,7 @@ struct ext2_inode {
 			__le32  m_i_reserved1;
 		} masix1;
 	} osd1;				/* OS dependent 1 */
+	//数据块地址
 	__le32	i_block[EXT2_N_BLOCKS];/* Pointers to blocks */
 	__le32	i_generation;	/* File version (for NFS) */
 	__le32	i_file_acl;	/* File ACL */
