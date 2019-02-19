@@ -47,15 +47,22 @@
 #define IDR_FREE_MAX MAX_LEVEL + MAX_LEVEL
 
 struct idr_layer {
+	//标记位图,标记使用情况
 	unsigned long		 bitmap; /* A zero bit means "space here" */
+	//子idr_layer数组ary[32]
 	struct idr_layer	*ary[1<<IDR_BITS];
+	//ary数组使用情况
 	int			 count;	 /* When zero, we can release it */
 };
 
 struct idr {
+	//idr_layer顶层,32叉树的根
 	struct idr_layer *top;
+	//指向idr_layer的空闲链表
 	struct idr_layer *id_free;
+	//idr_layer的层数量
 	int		  layers;
+	//idr_layer空闲链表中剩余的idr_layer个数
 	int		  id_free_cnt;
 	spinlock_t	  lock;
 };
