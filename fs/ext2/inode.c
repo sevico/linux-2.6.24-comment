@@ -1187,9 +1187,12 @@ void ext2_get_inode_flags(struct ext2_inode_info *ei)
 
 void ext2_read_inode (struct inode * inode)
 {
+	//根据 VFS inode 获取ext2_inode_info结构
 	struct ext2_inode_info *ei = EXT2_I(inode);
+	//获取 inode 号
 	ino_t ino = inode->i_ino;
 	struct buffer_head * bh;
+	//请求磁盘驱动程序读取指定的 inode 结构，保存在raw_inode中
 	struct ext2_inode * raw_inode = ext2_get_inode(inode->i_sb, ino, &bh);
 	int n;
 
@@ -1201,7 +1204,7 @@ void ext2_read_inode (struct inode * inode)
 
 	if (IS_ERR(raw_inode))
  		goto bad_inode;
-
+ 	//根据raw_inode设置 VFS inode和 Ext2内存 inode
 	inode->i_mode = le16_to_cpu(raw_inode->i_mode);
 	inode->i_uid = (uid_t)le16_to_cpu(raw_inode->i_uid_low);
 	inode->i_gid = (gid_t)le16_to_cpu(raw_inode->i_gid_low);
@@ -1249,7 +1252,8 @@ void ext2_read_inode (struct inode * inode)
 	 */
 	for (n = 0; n < EXT2_N_BLOCKS; n++)
 		ei->i_data[n] = raw_inode->i_block[n];
-
+	//设置i_op和i_fop指针
+	//普通文件
 	if (S_ISREG(inode->i_mode)) {
 		inode->i_op = &ext2_file_inode_operations;
 		if (ext2_use_xip(inode->i_sb)) {
@@ -1262,24 +1266,24 @@ void ext2_read_inode (struct inode * inode)
 			inode->i_mapping->a_ops = &ext2_aops;
 			inode->i_fop = &ext2_file_operations;
 		}
-	} else if (S_ISDIR(inode->i_mode)) {
+	} else if (S_ISDIR(inode->i_mode)) {//目录文件
 		inode->i_op = &ext2_dir_inode_operations;
 		inode->i_fop = &ext2_dir_operations;
 		if (test_opt(inode->i_sb, NOBH))
 			inode->i_mapping->a_ops = &ext2_nobh_aops;
 		else
 			inode->i_mapping->a_ops = &ext2_aops;
-	} else if (S_ISLNK(inode->i_mode)) {
-		if (ext2_inode_is_fast_symlink(inode))
+	} else if (S_ISLNK(inode->i_mode)) {//符号链接
+		if (ext2_inode_is_fast_symlink(inode))//目标路径小于60个字符
 			inode->i_op = &ext2_fast_symlink_inode_operations;
-		else {
+		else {//目标路径不小于60个字符
 			inode->i_op = &ext2_symlink_inode_operations;
 			if (test_opt(inode->i_sb, NOBH))
 				inode->i_mapping->a_ops = &ext2_nobh_aops;
 			else
 				inode->i_mapping->a_ops = &ext2_aops;
 		}
-	} else {
+	} else {//特殊文件系统
 		inode->i_op = &ext2_special_inode_operations;
 		if (raw_inode->i_block[0])
 			init_special_inode(inode, inode->i_mode,

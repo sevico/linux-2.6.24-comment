@@ -717,7 +717,10 @@ static unsigned long descriptor_loc(struct super_block *sb,
 
 static int ext2_fill_super(struct super_block *sb, void *data, int silent)
 {
+	//参数 sb指向VFS 超级块结构
 	struct buffer_head * bh;
+	//下面的 sbi指向内存中的Ext2超级块，es指向从磁盘读取到的 Ext超级块
+	//这个函数主要的工作是根据 es结构初始化sbi和 sb 结构
 	struct ext2_sb_info * sbi;
 	struct ext2_super_block * es;
 	struct inode *root;
@@ -726,16 +729,19 @@ static int ext2_fill_super(struct super_block *sb, void *data, int silent)
 	unsigned long logic_sb_block;
 	unsigned long offset = 0;
 	unsigned long def_mount_opts;
+	//BLOCK_SIZE大小默认为1KB
 	int blocksize = BLOCK_SIZE;
 	int db_count;
 	int i, j;
 	__le32 features;
 	int err;
-
+	//分配内存的ext2_sb_info结构
 	sbi = kzalloc(sizeof(*sbi), GFP_KERNEL);
 	if (!sbi)
 		return -ENOMEM;
+	//VFS超级块的s_fs_info指向 Ext2超级块ext2_sb_info结构
 	sb->s_fs_info = sbi;
+	//Ext2超级块的s_sb_block指向超级块的block 号
 	sbi->s_sb_block = sb_block;
 
 	/*
@@ -761,7 +767,7 @@ static int ext2_fill_super(struct super_block *sb, void *data, int silent)
 	} else {
 		logic_sb_block = sb_block;
 	}
-
+	//请求磁盘驱动器读取超级块
 	if (!(bh = sb_bread(sb, logic_sb_block))) {
 		printk ("EXT2-fs: unable to read superblock\n");
 		goto failed_sbi;
@@ -770,7 +776,9 @@ static int ext2_fill_super(struct super_block *sb, void *data, int silent)
 	 * Note: s_es must be initialized as soon as possible because
 	 *       some ext2 macro-instructions depend on its value
 	 */
+	//bh->b_data指向读取缓冲区的首地址，offset是超级块内偏移
 	es = (struct ext2_super_block *) (((char *)bh->b_data) + offset);
+	//Ext2内存超级块结构的s_es指向Ext2磁盘超级块es
 	sbi->s_es = es;
 	sb->s_magic = le16_to_cpu(es->s_magic);
 
@@ -841,7 +849,7 @@ static int ext2_fill_super(struct super_block *sb, void *data, int silent)
 		       sb->s_id, le32_to_cpu(features));
 		goto failed_mount;
 	}
-
+	//根据磁盘上的s_log_block_size计算逻辑块大小
 	blocksize = BLOCK_SIZE << le32_to_cpu(sbi->s_es->s_log_block_size);
 
 	if ((ext2_use_xip(sb)) && ((blocksize != PAGE_SIZE) ||
@@ -892,24 +900,30 @@ static int ext2_fill_super(struct super_block *sb, void *data, int silent)
 			goto failed_mount;
 		}
 	}
-
+	//片大小，当前没有分片，片大小等于块大小
 	sbi->s_frag_size = EXT2_MIN_FRAG_SIZE <<
 				   le32_to_cpu(es->s_log_frag_size);
 	if (sbi->s_frag_size == 0)
 		goto cantfind_ext2;
 	sbi->s_frags_per_block = sb->s_blocksize / sbi->s_frag_size;
-
+	//每个组的块个数
 	sbi->s_blocks_per_group = le32_to_cpu(es->s_blocks_per_group);
+	//每个组的片个数
 	sbi->s_frags_per_group = le32_to_cpu(es->s_frags_per_group);
+	//每个组的 inode 个数
 	sbi->s_inodes_per_group = le32_to_cpu(es->s_inodes_per_group);
 
 	if (EXT2_INODE_SIZE(sb) == 0)
 		goto cantfind_ext2;
+	//一个块中的 inode 数量为块大小除以 inode 大小
 	sbi->s_inodes_per_block = sb->s_blocksize / EXT2_INODE_SIZE(sb);
 	if (sbi->s_inodes_per_block == 0 || sbi->s_inodes_per_group == 0)
 		goto cantfind_ext2;
+	//一个组的 inode 数量除以一个块中的 inode 数量
+	//就得到一个组有几个块是用来存储 inode 的
 	sbi->s_itb_per_group = sbi->s_inodes_per_group /
 					sbi->s_inodes_per_block;
+	//块大小除以组描述符大小，得到一个块中最多有几个组描述符
 	sbi->s_desc_per_block = sb->s_blocksize /
 					sizeof (struct ext2_group_desc);
 	sbi->s_sbh = bh;
@@ -921,7 +935,7 @@ static int ext2_fill_super(struct super_block *sb, void *data, int silent)
 
 	if (sb->s_magic != EXT2_SUPER_MAGIC)
 		goto cantfind_ext2;
-
+	//由于没有实现分片，如果片大小不等于块大小就报错
 	if (sb->s_blocksize != bh->b_size) {
 		if (!silent)
 			printk ("VFS: Unsupported blocksize on dev "
@@ -953,11 +967,14 @@ static int ext2_fill_super(struct super_block *sb, void *data, int silent)
 
 	if (EXT2_BLOCKS_PER_GROUP(sb) == 0)
 		goto cantfind_ext2;
+	//计算当前分区组的个数，组的个数由分区大小和块大小决定
+	//这里需要处理分区中块的边界不能凑成一个组的情况
  	sbi->s_groups_count = ((le32_to_cpu(es->s_blocks_count) -
  				le32_to_cpu(es->s_first_data_block) - 1)
  					/ EXT2_BLOCKS_PER_GROUP(sb)) + 1;
 	db_count = (sbi->s_groups_count + EXT2_DESC_PER_BLOCK(sb) - 1) /
 		   EXT2_DESC_PER_BLOCK(sb);
+	//为组描述符分配 buffer_head 结构体
 	sbi->s_group_desc = kmalloc (db_count * sizeof (struct buffer_head *), GFP_KERNEL);
 	if (sbi->s_group_desc == NULL) {
 		printk ("EXT2-fs: not enough memory\n");
@@ -969,10 +986,15 @@ static int ext2_fill_super(struct super_block *sb, void *data, int silent)
 		printk ("EXT2-fs: not enough memory\n");
 		goto failed_mount_group_desc;
 	}
+	//请求磁盘驱动程序，把组描述读取出来，并设置对应的s_group_desc数组中的指针
 	for (i = 0; i < db_count; i++) {
+		//根据超级块中的s_first_data_block，块大小，以及组描述符大小，
+		//计算第 i 个组描述符的逻辑块号
 		block = descriptor_loc(sb, logic_sb_block, i);
+		//请求磁盘驱动程序读取第 block块
 		sbi->s_group_desc[i] = sb_bread(sb, block);
 		if (!sbi->s_group_desc[i]) {
+			//一个块中包含了多个组描述符
 			for (j = 0; j < i; j++)
 				brelse (sbi->s_group_desc[j]);
 			printk ("EXT2-fs: unable to read group descriptors\n");
@@ -1019,10 +1041,13 @@ static int ext2_fill_super(struct super_block *sb, void *data, int silent)
 	/*
 	 * set up enough so that it can read an inode
 	 */
+	//设置VFS 超级块的 super_operations指针为ext2_sops
 	sb->s_op = &ext2_sops;
 	sb->s_export_op = &ext2_export_ops;
 	sb->s_xattr = ext2_xattr_handlers;
+	//获取根目录的inode
 	root = iget(sb, EXT2_ROOT_INO);
+	//初始化根目录的目录结构
 	sb->s_root = d_alloc_root(root);
 	if (!sb->s_root) {
 		iput(root);

@@ -1142,6 +1142,7 @@ extern spinlock_t sb_lock;
 #define S_BIAS (1<<30)
 struct super_block {
 	/* 指向超级块链表的指针 */
+		//每一个分区都有一个超级块，所有超级块用s_list连接
 	//用以形成超级块链表
 	struct list_head	s_list;		/* Keep this first */
 	 /* 设备标识符 */
@@ -1670,6 +1671,7 @@ struct super_operations {
 //创建和初始化一个新的索引节点对象
    	struct inode *(*alloc_inode)(struct super_block *sb);
 	/* 撤销索引节点对象，包括具体文件系统的数据。 */
+		//释放inode 结构
 	void (*destroy_inode)(struct inode *);
 	/* 用磁盘上的数据填充以参数传递过来的索引节点对象的字段；
 	   索引节点对象的i_ino字段标识从磁盘上要读取的具体文件系统的索引节点。
@@ -1678,10 +1680,12 @@ struct super_operations {
 	又是如何知道读取哪一个ioode？在read_inode被调用前，VFS会先在inode
 	对象中填入一些信息，比如i_ino。字段，以便readinode能够获悉需要读取哪一个inode
 	   */
-
+		//从磁盘上读取指定的inode 结构，并初始化inode 结构
+	//inode 号由该结构的 i_ino成员指定
 	void (*read_inode) (struct inode *);
     /* 当索引节点标记为修改（脏）时调用。
   * 像ReiserFS和Ext3这样的文件系统用它来更新磁盘上的文件系统日志。*/
+		//当inode被修改后调用
    	void (*dirty_inode) (struct inode *);
 	/* 用通过传递参数指定的索引节点对象的内容更新一个文件系统的索引节点。
   * 索引节点对象的i_ino字段标识所涉及磁盘上文件系统的索引节点。
@@ -1701,14 +1705,17 @@ struct super_operations {
   * 该函数从VFS数据结构中移走对索引节点的每一个引用，
   * 如果索引节点不再出现在任何目录中，
   * 则调用超级块方法delete_inode将它从文件系统中删除。只会被iput_final调用*/
+	//当inode 的引用计数为0时，用来删除 inode在内存中的结构
 	void (*drop_inode) (struct inode *);
 	 /* 在必须撤消索引节点时调用。删除内存中的VFS索引节点和磁盘上的文件数据及元数据。	
 	释放内存中的inode，并且将其从磁盘上删除。inode的引用计数为0时，它所占用
 	的内存会被释放，如果此时它的硬链接个数（inode->1nlink）也为0，就会调用
 	delete_inode(）将其从磁盘上删除
 	*/
+	//删除 inode，包括内存中的 inode结构和磁盘上的结构
 	void (*delete_inode) (struct inode *);
 	  /* 释放通过传递的参数指定的超级块对象（因为相应的文件系统被卸载）。*/
+		//释放超级块
 	void (*put_super) (struct super_block *);
 	  /* 用指定对象的内容更新文件系统的超级块。
 	 	将超级块写回磁盘，更新磁盘上的超级块。Write_super最后应该将s_dirt
@@ -1716,8 +1723,10 @@ struct super_operations {
 是否被mounte成只读（检查s_flags是否设置了MS_RDONLY标志），如果是的话
 就不需要做什么工作了
 	 	*/
+	 	//在磁盘上写入超级块
 	void (*write_super) (struct super_block *);
 	  /* 在清除文件系统来更新磁盘上的具体文件系统数据结构时调用（由日志文件系统使用）。*/
+		//把文件写入磁盘时，更新文件系统的特定结构
 	int (*sync_fs)(struct super_block *sb, int wait);
 	 /* 阻塞对文件系统的修改并用指定对象的内容更新超级块。
   * 当文件系统被冻结时调用该方法，例如，由逻辑卷管理器驱动程序（LVM）调用。*/
@@ -1725,6 +1734,7 @@ struct super_operations {
 	 /* 取消由write_super_lockfs()超级块方法实现的对文件系统更新的阻塞，锁定。*/
 	void (*unlockfs) (struct super_block *);
 	  /* 将文件系统的统计信息返回，填写在buf缓冲区中。*/
+		//获取文件系统信息
 	int (*statfs) (struct dentry *, struct kstatfs *);
 	 /* 用新的选项重新安装文件系统（当某个安装选项必须被修改时被调用
 	使用新的选项重新mount文件系统。当一个文件系统已经被mount之后，如果我们
@@ -1733,12 +1743,15 @@ struct super_operations {
 为了怕参数的改变会对文件系统本身造成行为上的改变，所以此时会调用
 Remount_fs()告诉文件系统用户要改变mount的参数，如果该文件系统有需要，可以在remount_fs中做适当的处理。
 	*/
+	//重新挂载这个设备，通常在 shell中运行 mount命令
+	//并指定remount属性时会调用该函数
 	int (*remount_fs) (struct super_block *, int *, char *);
 	 /* 当撤消磁盘索引节点执行具体文件系统操作时调用。只会被VFS提供的clear_inode调用*/
 	void (*clear_inode) (struct inode *);
 	  /* 中断一个安装操作，因为相应的卸载操作已经开始（只在网络文件系统中使用）。*/
 	void (*umount_begin) (struct vfsmount *, int);
 	 /* 用来显示特定文件系统的选项。*/
+		//获取文件系统属性
 	int (*show_options)(struct seq_file *, struct vfsmount *);
 	/* 用来显示特定文件系统的状态。显示文件系统安装点的统计信息*/
 	int (*show_stats)(struct seq_file *, struct vfsmount *);
@@ -1913,10 +1926,12 @@ struct file_system_type {
 	在安装文件系统时，会调用get_sb从磁盘中获取超级块。这个函数必须提供，
 	它主要是通过调用get_sb_bdev(),get_sb_single(),get_sb_nodev等函数完成工作
 	*/
+		//超级块初始化函数指针
 	int (*get_sb) (struct file_system_type *, int,
 		       const char *, void *, struct vfsmount *);
 	//卸载文件系统时，会调用kill_sb进行一些清理工作。这个函数必须提供，它主要
 	//是通过kill_block_super,kill_anon_super,kill_litter_super等函数完成工作
+	//释放超级块函数指针
 	void (*kill_sb) (struct super_block *);
 	//指向拥有这个结构的模块，如果一个文件系统被编译进内核，则该字段为NULL
 	struct module *owner;

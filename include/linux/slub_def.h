@@ -189,6 +189,7 @@ void *__kmalloc(size_t size, gfp_t flags);
 
 static __always_inline void *kmalloc(size_t size, gfp_t flags)
 {
+	//如果编译期能确定 size 的大小，__builtin_constant_p(size)返回1
 	if (__builtin_constant_p(size)) {
 		if (size > PAGE_SIZE / 2)
 			return (void *)__get_free_pages(flags | __GFP_COMP,
