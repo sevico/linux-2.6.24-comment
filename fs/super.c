@@ -742,11 +742,13 @@ int get_sb_bdev(struct file_system_type *fs_type,
 	 * while we are mounting
 	 */
 	down(&bdev->bd_mount_sem);
+	//在super_block链表中搜索指定的super_block 对象
+	//如果搜索失败，就重新分配一个
 	s = sget(fs_type, test_bdev_super, set_bdev_super, bdev);
 	up(&bdev->bd_mount_sem);
 	if (IS_ERR(s))
 		goto error_s;
-
+	//如果返回的super_block对象的s_root成员非空，说明已经 mount 过了
 	if (s->s_root) {
 		if ((flags ^ s->s_flags) & MS_RDONLY) {
 			up_write(&s->s_umount);
@@ -864,6 +866,7 @@ vfs_kern_mount(struct file_system_type *type, int flags, const char *name, void 
 		return ERR_PTR(-ENODEV);
 
 	error = -ENOMEM;
+	//分配vfsmnt对象
 	mnt = alloc_vfsmnt(name);
 	if (!mnt)
 		goto out;
@@ -877,12 +880,12 @@ vfs_kern_mount(struct file_system_type *type, int flags, const char *name, void 
 		if (error)
 			goto out_free_secdata;
 	}
-
+	//调用文件系统对象的get_sb函数
 	error = type->get_sb(type, flags, name, data, mnt);
 	if (error < 0)
 		goto out_free_secdata;
 	BUG_ON(!mnt->mnt_sb);
-
+	//安全检查，默认为空
  	error = security_sb_kern_mount(mnt->mnt_sb, secdata);
  	if (error)
  		goto out_sb;
@@ -932,6 +935,7 @@ static struct vfsmount *fs_set_subtype(struct vfsmount *mnt, const char *fstype)
 struct vfsmount *
 do_kern_mount(const char *fstype, int flags, const char *name, void *data)
 {
+	//获取fstype指定的文件系统对象
 	struct file_system_type *type = get_fs_type(fstype);
 	struct vfsmount *mnt;
 	if (!type)

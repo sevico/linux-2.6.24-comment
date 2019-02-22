@@ -67,6 +67,7 @@ static struct dentry *ext2_lookup(struct inode * dir, struct dentry *dentry, str
 		if (!inode)
 			return ERR_PTR(-EACCES);
 	}
+	/* 在这里将找到的inode跟dentry关联 */
 	return d_splice_alias(inode, dentry);
 }
 

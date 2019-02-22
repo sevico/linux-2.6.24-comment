@@ -169,6 +169,7 @@ static int ramfs_fill_super(struct super_block * sb, void * data, int silent)
 	sb->s_blocksize = PAGE_CACHE_SIZE;
 	sb->s_blocksize_bits = PAGE_CACHE_SHIFT;
 	sb->s_magic = RAMFS_MAGIC;
+	//设置s_op函数指针
 	sb->s_op = &ramfs_ops;
 	sb->s_time_gran = 1;
 	inode = ramfs_get_inode(sb, S_IFDIR | 0755, 0);

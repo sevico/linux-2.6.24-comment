@@ -617,9 +617,11 @@ static inline void dput_path(struct path *path, struct nameidata *nd)
 static inline void path_to_nameidata(struct path *path, struct nameidata *nd)
 {
 	dput(nd->dentry);
+	//如果目录项对应一个新的mount point，那么需要改变nd->mnt
 	if (nd->mnt != path->mnt)
 		mntput(nd->mnt);
 	nd->mnt = path->mnt;
+	//nd->dentry向前一步
 	nd->dentry = path->dentry;
 }
 
@@ -669,6 +671,7 @@ static inline int do_follow_link(struct path *path, struct nameidata *nd)
 {
 	int err = -ELOOP;
 	/*如果已经超出了最大循环限度，就退出*/
+	//最大 link深度为8
 	if (current->link_count >= MAX_NESTED_LINKS)
 		goto loop;
 	if (current->total_link_count >= 40)
@@ -813,6 +816,7 @@ static int do_lookup(struct nameidata *nd, struct qstr *name,
 		     struct path *path)
 {
 	struct vfsmount *mnt = nd->mnt;
+	//在缓存中查找
 	struct dentry *dentry = __d_lookup(nd->dentry, name);
 
 	if (!dentry)
@@ -826,6 +830,7 @@ done:
 	return 0;
 
 need_lookup:
+//从磁盘上查找
 	dentry = real_lookup(nd->dentry, name, nd);
 	if (IS_ERR(dentry))
 		goto fail;
@@ -857,16 +862,19 @@ static fastcall int __link_path_walk(const char * name, struct nameidata *nd)
 	struct inode *inode;
 	int err;
 	unsigned int lookup_flags = nd->flags;
-	
+	//跳过路径前面的/号
 	while (*name=='/')
 		name++;
+	//如果跳过前面的/号后得到一个空的字符串就直接返回
 	if (!*name)
 		goto return_reval;
-
+	//当前起点的 dentry对应的 inode
 	inode = nd->dentry->d_inode;
+	//如果depth 不为0，设置LOOKUP_FOLLOW标志
 	if (nd->depth)
 		lookup_flags = LOOKUP_FOLLOW | (nd->flags & LOOKUP_CONTINUE);
-
+	//下面这个循环就会根据路径名中的/,一级级地分离出目录名
+	//然后处理
 	/* At this point we know we have a real path component. */
 	for(;;) {
 		unsigned long hash;
@@ -893,9 +901,12 @@ static fastcall int __link_path_walk(const char * name, struct nameidata *nd)
 		this.hash = end_name_hash(hash);
 
 		/* remove trailing slashes? */
+		//执行到这里，this 代表本次要解析的名字
+		//到达路径字符串的末尾了，跳转到last_component
 		if (!c)
 			goto last_component;
 		while (*++name == '/');
+		//如果路径字符串以/结束，说明被定位的必须是一个目录，跳到last_with_slashes
 		if (!*name)
 			goto last_with_slashes;
 
@@ -904,6 +915,10 @@ static fastcall int __link_path_walk(const char * name, struct nameidata *nd)
 		 * to be able to know about the current root directory and
 		 * parent relationships.
 		 */
+		//如果这个 qstr 项长度为 1, 并且 name 为一个点，则表示当前目录
+		//于是执行 continue，进行下一次 for 循环
+		//如果这个 qstr 项长度为 2, 并且 name 为连续的两个点，则表示上级目录
+		//调用 follow_dotdot()调整 nd 中的相关成员。
 		if (this.name[0] == '.') switch (this.len) {
 			default:
 				break;
@@ -920,24 +935,31 @@ static fastcall int __link_path_walk(const char * name, struct nameidata *nd)
 		 * See if the low-level filesystem might want
 		 * to use its own hash..
 		 */
+		//某些文件系统可能提供了自己的 hash 算法，那么就调用它的d_hash
 		if (nd->dentry->d_op && nd->dentry->d_op->d_hash) {
 			err = nd->dentry->d_op->d_hash(nd->dentry, &this);
 			if (err < 0)
 				break;
 		}
 		/* This does the actual lookups.. */
+		//在 nd 的 dentry 成员中搜索由 this 指定的子目录项节点，
+		//并在 next 中返回子目录项节点的 dentry.
 		err = do_lookup(nd, &this, &next);
 		if (err)
 			break;
 
 		err = -ENOENT;
+		//调整 inode 指向子节点目录项节点对应的 inode.
 		inode = next.dentry->d_inode;
 		if (!inode)
 			goto out_dput;
 		err = -ENOTDIR; 
 		if (!inode->i_op)
 			goto out_dput;
-
+		//在对 ext2_read_inode()函数的分析过程中
+		//我们看到 ext2_ read_ inode（）为目录，普通文件或者符号链接设置不同的i_op，
+		//所以在这里，如果 i_ op 的 follow_ link 不为空，那就说明这一定是一个符号链接，
+		//于是调用 do_follow_link()处理符号链接
 		if (inode->i_op->follow_link) {
 			err = do_follow_link(&next, nd);
 			if (err)
@@ -949,21 +971,28 @@ static fastcall int __link_path_walk(const char * name, struct nameidata *nd)
 			err = -ENOTDIR; 
 			if (!inode->i_op)
 				break;
-		} else
+		} else //如果不是符号链接,nd 中的dentry成员就可以前进一步了
 			path_to_nameidata(&next, nd);
 		err = -ENOTDIR; 
 		if (!inode->i_op->lookup)
 			break;
+		//继续 for 循环，处理下一项
 		continue;
 		/* here ends the main loop */
-
+		//如果从前面跳转到这里，说明目标路径一定
+		//是一个目录，设置 LOOKUP_DIRECTORY 标志。
 last_with_slashes:
 		lookup_flags |= LOOKUP_FOLLOW | LOOKUP_DIRECTORY;
+		//现在 qstr 对象 this 中保存这路径中最后一项，而nd的dentry成员也指向
+		//了这一项的父节点。为了方便理解，我们假设路径为/bin/bash，则this
+		//指向字符bash, nd->dentry指向bin对应的 dentry 对象，只要在这里从
+		//nd->dentry的目录项中搜索到 bash，就大功告成了。
 last_component:
 		/* Clear LOOKUP_CONTINUE iff it was previously unset */
 		nd->flags &= lookup_flags | ~LOOKUP_CONTINUE;
 		if (lookup_flags & LOOKUP_PARENT)
 			goto lookup_parent;
+		//这里还是要考虑路径项仅为一个点或者两个点的情况
 		if (this.name[0] == '.') switch (this.len) {
 			default:
 				break;
@@ -981,10 +1010,12 @@ last_component:
 			if (err < 0)
 				break;
 		}
+		//调用do_lookup搜索this 指定目录项
 		err = do_lookup(nd, &this, &next);
 		if (err)
 			break;
 		inode = next.dentry->d_inode;
+		//考虑符号链接的情况
 		if ((lookup_flags & LOOKUP_FOLLOW)
 		    && inode && inode->i_op && inode->i_op->follow_link) {
 			err = do_follow_link(&next, nd);
@@ -992,6 +1023,8 @@ last_component:
 				goto return_err;
 			inode = nd->dentry->d_inode;
 		} else
+			//如果不是符号链接，nd 中的 dentry 成员就可以前进一步了，
+			//这时它指向了最终要定位的 dentry 对象了
 			path_to_nameidata(&next, nd);
 		err = -ENOENT;
 		if (!inode)
@@ -1025,6 +1058,7 @@ return_reval:
 			if (!nd->dentry->d_op->d_revalidate(nd->dentry, nd))
 				break;
 		}
+		//大功告成
 return_base:
 		return 0;
 out_dput:
@@ -1045,13 +1079,15 @@ return_err:
  */
 static int fastcall link_path_walk(const char *name, struct nameidata *nd)
 {
+	//保存一个nameidata对象的备份
 	struct nameidata save = *nd;
 	int result;
 
 	/* make sure the stuff we saved doesn't go away */
+	//增加引用计数
 	dget(save.dentry);
 	mntget(save.mnt);
-
+	//开始定位，结果保存在nd 中
 	result = __link_path_walk(name, nd);
 	if (result == -ESTALE) {
 		*nd = save;

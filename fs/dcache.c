@@ -1260,18 +1260,20 @@ struct dentry * __d_lookup(struct dentry * parent, struct qstr * name)
 	unsigned int len = name->len;
 	unsigned int hash = name->hash;
 	const unsigned char *str = name->name;
+	/* 在这里计算出head, 就是我们需要的hash链 */
 	struct hlist_head *head = d_hash(parent,hash);
 	struct dentry *found = NULL;
 	struct hlist_node *node;
 	struct dentry *dentry;
 
 	rcu_read_lock();
-	
+	/* 遍历之前找到的hash链 */
 	hlist_for_each_entry_rcu(dentry, node, head, d_hash) {
 		struct qstr *qstr;
-
+		/* qstr->hash 值不匹配 */
 		if (dentry->d_name.hash != hash)
 			continue;
+		/* hash值一样 但不在同一个目录 */
 		if (dentry->d_parent != parent)
 			continue;
 
@@ -1290,16 +1292,20 @@ struct dentry * __d_lookup(struct dentry * parent, struct qstr * name)
 		 * change the qstr (protected by d_lock).
 		 */
 		qstr = &dentry->d_name;
+		/* 我们找到了一个qstr->hash值一致, 也在同一个目录的dentry
+		 * 为了进一步确认这个dentry就是我们的目标, 需要做最后的比较 */
 		if (parent->d_op && parent->d_op->d_compare) {
 			if (parent->d_op->d_compare(parent, qstr, name))
 				goto next;
 		} else {
+			/* 绝大多数文件系统都是有了dcache默认的比较方法
+			 * 那就是比较文件名的长度和实际内容是否完全一致 */
 			if (qstr->len != len)
 				goto next;
 			if (memcmp(qstr->name, str, len))
 				goto next;
 		}
-
+		/* 找到了... */
 		if (!d_unhashed(dentry)) {
 			atomic_inc(&dentry->d_count);
 			found = dentry;
