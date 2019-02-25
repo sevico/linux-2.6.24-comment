@@ -141,6 +141,8 @@ int radix_tree_preload(gfp_t gfp_mask)
 
 	preempt_disable();
 	rtp = &__get_cpu_var(radix_tree_preloads);
+	//如果预分配的radix_tree_node的数量低于ARRAY_SIZE(rtp->nodes)，
+	//就预分配足量的radix_tree_node结构
 	while (rtp->nr < ARRAY_SIZE(rtp->nodes)) {
 		preempt_enable();
 		node = kmem_cache_alloc(radix_tree_node_cachep,
@@ -283,7 +285,8 @@ int radix_tree_insert(struct radix_tree_root *root,
 	int error;
 
 	BUG_ON(radix_tree_is_indirect_ptr(item));
-
+	//如果当前要增加的 page 结构对应的映射地址超过了当前
+	//高度能表示的的最大地址，就调用radix_tree_extend调整树的高度
 	/* Make sure the tree is high enough.  */
 	if (index > radix_tree_maxindex(root->height)) {
 		error = radix_tree_extend(root, index);
@@ -408,7 +411,7 @@ void *radix_tree_lookup(struct radix_tree_root *root, unsigned long index)
 	node = rcu_dereference(root->rnode);
 	if (node == NULL)
 		return NULL;
-
+	//获取子节点指针
 	if (!radix_tree_is_indirect_ptr(node)) {
 		if (index > 0)
 			return NULL;
@@ -417,6 +420,8 @@ void *radix_tree_lookup(struct radix_tree_root *root, unsigned long index)
 	node = radix_tree_indirect_to_ptr(node);
 
 	height = node->height;
+	//radix_tree_maxindex根据高度height,计算出能够映射的最大
+	//尺寸的页面号，如果 index 超出这个范围，返回 NULL
 	if (index > radix_tree_maxindex(height))
 		return NULL;
 

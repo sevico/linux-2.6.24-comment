@@ -735,7 +735,7 @@ asmlinkage long sys_fchown(unsigned int fd, uid_t user, gid_t group)
 out:
 	return error;
 }
-
+//注意在nameidata_to_filp中，最后一个参数为 NULL
 static struct file *__dentry_open(struct dentry *dentry, struct vfsmount *mnt,
 					int flags, struct file *f,
 					int (*open)(struct inode *, struct file *))
@@ -757,13 +757,14 @@ static struct file *__dentry_open(struct dentry *dentry, struct vfsmount *mnt,
 	f->f_path.dentry = dentry;
 	f->f_path.mnt = mnt;
 	f->f_pos = 0;
+	//把 file 对象的f_op设置为 inode对象中的i_fop
 	f->f_op = fops_get(inode->i_fop);
 	file_move(f, &inode->i_sb->s_files);
 
 	error = security_dentry_open(f);
 	if (error)
 		goto cleanup_all;
-
+	//如果参数中的 open 函数指针为 NULL，就调用下层具体文件系统提供的open函数
 	if (!open && f->f_op)
 		open = f->f_op->open;
 	if (open) {
@@ -893,6 +894,7 @@ struct file *nameidata_to_filp(struct nameidata *nd, int flags)
 	/* Pick up the filp from the open intent */
 	filp = nd->intent.open.file;
 	/* Has the filesystem initialised the file for us? */
+	//如果下层具体文件系统没有初始化file 对象
 	if (filp->f_path.dentry == NULL)
 		filp = __dentry_open(nd->dentry, nd->mnt, flags, filp, NULL);
 	else
@@ -1111,12 +1113,13 @@ int filp_close(struct file *filp, fl_owner_t id)
 		printk(KERN_ERR "VFS: Close: file count is 0\n");
 		return 0;
 	}
-
+	//调用下层具体文件系统的 flush 函数，它负责把内存中的数据更新到磁盘上
 	if (filp->f_op && filp->f_op->flush)
 		retval = filp->f_op->flush(filp, id);
 
 	dnotify_flush(filp, id);
 	locks_remove_posix(filp, id);
+	//减小file 的引用计数，当引用计数为0时就释放它
 	fput(filp);
 	return retval;
 }
@@ -1131,21 +1134,26 @@ EXPORT_SYMBOL(filp_close);
 asmlinkage long sys_close(unsigned int fd)
 {
 	struct file * filp;
+	//获取当前进程的files_struct结构
 	struct files_struct *files = current->files;
 	struct fdtable *fdt;
 	int retval;
 
 	spin_lock(&files->file_lock);
+	//获取fdtable
 	fdt = files_fdtable(files);
 	if (fd >= fdt->max_fds)
 		goto out_unlock;
+	//以fd 为数组下标，从fdtable中获取file 对象指针
 	filp = fdt->fd[fd];
 	if (!filp)
 		goto out_unlock;
+	//清空fd 和对应的位图项
 	rcu_assign_pointer(fdt->fd[fd], NULL);
 	FD_CLR(fd, fdt->close_on_exec);
 	__put_unused_fd(files, fd);
 	spin_unlock(&files->file_lock);
+	//关闭文件
 	retval = filp_close(filp, files);
 
 	/* can't restart close syscall because file table entry was cleared */

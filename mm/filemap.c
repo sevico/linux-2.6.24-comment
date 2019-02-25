@@ -883,7 +883,7 @@ void do_generic_mapping_read(struct address_space *mapping,
 	unsigned long offset;      /* offset into pagecache page */
 	unsigned int prev_offset;
 	int error;
-	/*把文件位置指针转换为对应的页面号*/
+	/*把文件位置指针转换为对应的页面号,就是在radix tree中用到的页面号*/
 	index = *ppos >> PAGE_CACHE_SHIFT;
 	prev_index = ra->prev_pos >> PAGE_CACHE_SHIFT;
 	prev_offset = ra->prev_pos & (PAGE_CACHE_SIZE-1);

@@ -276,6 +276,7 @@ ssize_t vfs_read(struct file *file, char __user *buf, size_t count, loff_t *pos)
 	ret = rw_verify_area(READ, file, pos, count);
 	if (ret >= 0) {
 		count = ret;
+		//安全检查接口，默认操作为空
 		ret = security_file_permission (file, MAY_READ);
 		if (!ret) {
 			//ext2的文件系统的file->f_op->read也是do_sync_read
