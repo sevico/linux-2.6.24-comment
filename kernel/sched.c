@@ -2002,7 +2002,10 @@ context_switch(struct rq *rq, struct task_struct *prev,
 		//如果将要运行的进程不是内核线程，则切换到它的页表
 		//加载新进程mm->pgd到 CR3寄存器，这样就切换到了新进程的地址空间
 		switch_mm(oldmm, mm, next);
-
+	/**
+	 * 如果上一个线程是内核线程或正在退出的进程，就把prev内存描述符的指针保存到运行队列的prev_mm中。
+	 * 并清空rq->prev_mm
+	 */
 	if (unlikely(!prev->mm)) {
 		prev->active_mm = NULL;
 		rq->prev_mm = oldmm;

@@ -697,15 +697,29 @@ __switch_to_xtra(struct task_struct *prev_p, struct task_struct *next_p,
  * the task-switch, and shows up in ret_from_fork in entry.S,
  * for example.
  */
+/**
+ * __switch_to函数执行大多数进程切换的工作。
+ * 进程切换的工作开始于switch_to宏，但是它的主要工作还是由__switch_to完成。
+ * 这个函数是寄存器传参的函数。在switch_to宏中，参数已经保存在eax和edx中了.
+ __switch_to的函数参数不是通过栈传递的，而是指定了eax和edx寄存器，switch_to什么都没有做，
+ 只是在对应Makefile中写上了KBUILD_CFLAGS += -msoft-float -mregparm=3 -freg-struct-return，-mregparm=3表示默认使用3个寄存器传参
+ */
 struct task_struct fastcall * __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 {
 	struct thread_struct *prev = &prev_p->thread,
 				 *next = &next_p->thread;
+	/**
+	 * 通过读取current_thread_info()->cpu,获得当前进程在哪个CPU上运行.
+	 * 因为在schedule函数中已经调用了禁用抢占,所以这里可以直接使用smp_processor_id()
+	 */
 	int cpu = smp_processor_id();
 	struct tss_struct *tss = &per_cpu(init_tss, cpu);
 
 	/* never put a printk in __switch_to... printk() calls wake_up*() indirectly */
-
+	/**
+	 * __unlazy_fpu宏有选择的保存FPU\MMX\XMM寄存器的内容.
+	 * 它可能会延后保存这些寄存器的内容.
+	 */
 	__unlazy_fpu(prev_p);
 
 
@@ -715,6 +729,10 @@ struct task_struct fastcall * __switch_to(struct task_struct *prev_p, struct tas
 
 	/*
 	 * Reload esp0.
+	 */
+	/**
+	 * 把next_p->thread.esp0装入本地CPU的TSS的esp0字段.
+	 * 任何由sysenter汇编指令产生的从用户态到内核态的特权级转换将把这个地址复制到esp寄存器.
 	 */
 	load_esp0(tss, next);
 
@@ -732,6 +750,9 @@ struct task_struct fastcall * __switch_to(struct task_struct *prev_p, struct tas
 
 	/*
 	 * Load the per-thread Thread-Local Storage descriptor.
+	 */
+	/**
+	 * 将next_p进程使用的线程局部存储(TLS)段装入本地CPU的全局描述符表.
 	 */
 	load_TLS(next, cpu);
 
@@ -774,7 +795,12 @@ struct task_struct fastcall * __switch_to(struct task_struct *prev_p, struct tas
 		loadsegment(gs, next->gs);
 
 	x86_write_percpu(current_task, next_p);
-
+	/**
+	 * return产生的汇编指令是movl %edi, %eax,ret.
+	 * 这里有保护eax和返回地址的问题.请仔细理解.
+	 * 除了需要理解switch_to宏中的jmp指令外,对于没有产生切换,而是第一次开始执行的进程.
+	 * 它并不会跳回switch_to,而是找到ret_from_fork函数的初始地址.
+	 */
 	return prev_p;
 }
 

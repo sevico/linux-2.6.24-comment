@@ -16,31 +16,70 @@ extern struct task_struct * FASTCALL(__switch_to(struct task_struct *prev, struc
  * Saving eflags is important. It switches not only IOPL between tasks,
  * it also protects other tasks from NT leaking through sysenter etc.
  */
+/**
+ * 进程切换时，切换内核态堆栈和硬件上下文。
+ * prev-被替换的进程
+ * next-新进程
+ * last-在任何进程切换中，到三个进程而不是两个。假设内核决定暂停A而激活B，那么在schedule函数中，prev指向A而next指向B。
+ *      当切换回A后，就必须暂停另外一个进程C。而LAST则指向C进程。
+ */
 #define switch_to(prev,next,last) do {					\
 	unsigned long esi,edi;						\
+	/**
+	 * 在真正执行汇编代码前，已经将prev存入eax，next存入edx中了。
+	 */
+	/**
+	* 保存eflags和ebp到内核栈中。必须保存是因为编译器认为在switch_to结束前，
+	* 它们的值应当保持不变。
+	*/
 	asm volatile(
 		//在当前进程堆栈中保存 Eflags
 		"pushfl\n\t"		/* Save flags */	\
 		//在当前进程的堆栈保存EBP
 		     "pushl %%ebp\n\t"					\
 			 //把esp 保存到prev->thread.esp中
+			 /**
+		      * 把esp的内容保存到prev->thread.esp中
+		      * 这样该字段指向prev内核栈的栈顶。
+		      */
 		     "movl %%esp,%0\n\t"	/* save ESP */		\
 			 //把next->thread.esp加载到寄存器ESP中，现在，切换到了next 的内核堆栈
+			 /**
+		      * 将next->thread.esp装入到esp.
+		      * 此时，内核开始在next的栈上进行操作。这条指令实际上完成了从prev到next的切换。
+		      * 由于进程描述符的地址和内核栈的地址紧挨着，所以改变内核栈意味着改变当前进程。
+		      */
 		     "movl %5,%%esp\n\t"	/* restore ESP */	\
 			 //把标号为1的地址保存到prev->thread.eip中，当下一
 			 //次切换到进程 prev 时，它将从标号为1的地址处执行
+			 /**
+		      * 将标记为1f的地址存入prev->thread.eip.
+		      * 当被替换的进程重新恢复执行时，进程执行被标记为1f的那条指令。
+		      */
 		     "movl $1f,%1\n\t"		/* save EIP */		\
 			 //把next->thread.eip保存到堆栈中,并且调用
 			 //__switch_to函数，这样__switch_to函数的返回地址就是 next->thread.eip
+			 /**
+		      * 将next->thread.eip的值保存到next的内核栈中。
+		      * 这样，_switch_to调用ret返回时，就会跳转到next->thread.eip执行。
+		      * 这个地址一般情况下就会是1f.
+		      */
 		     "pushl %6\n\t"		/* restore EIP */	\
+		     /**
+		      * 注意，这里不是用call，是jmp，这样，上一条语句中压入的eip地址就可以执行了。
+		      */
 		     "jmp __switch_to\n"				\
 			 //在把地址保存到prev->thread.eip中，当再次切换到这个进程时，
 			 //通过第"pushl %6\n\t"，从next->thread.eip取出上次保存的EIP作为返回地址
 			 //进程将从这里继续执行
+			 /**
+		      * 到这里，进程A再次获得CPU。它从栈中弹出ebp和eflags。
+		      */
 		     "1:\t"						\
 		     "popl %%ebp\n\t"					\
 		     "popfl"						\
 		     :"=m" (prev->thread.esp),"=m" (prev->thread.eip),	\
+		     /* last被作为输出参数，它的值会由eax赋给它。 */
 		      "=a" (last),"=S" (esi),"=D" (edi)			\
 		     :"m" (next->thread.esp),"m" (next->thread.eip),	\
 		      "2" (prev), "d" (next));

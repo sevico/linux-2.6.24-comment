@@ -557,7 +557,9 @@ static inline void __switch_to_xtra(struct task_struct *prev_p,
 
 	prev = &prev_p->thread,
 	next = &next_p->thread;
-
+	/**
+	 * 用debugreg数组的内容dr0..dr7中的6个调试寄存器.这允许定义四个断点区域.
+	 */
 	if (test_tsk_thread_flag(next_p, TIF_DEBUG)) {
 		loaddebug(next, 0);
 		loaddebug(next, 1);
