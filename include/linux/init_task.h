@@ -118,6 +118,9 @@ extern struct group_info init_groups;
  *  INIT_TASK is used to set up the first task table, touch at
  * your own risk!. Base=0, limit=0x1fffff (=2MB)
  */
+/**
+ * 初始化进程0的任务描述符。
+ */
 #define INIT_TASK(tsk)	\
 {									\
 	.state		= 0,						\

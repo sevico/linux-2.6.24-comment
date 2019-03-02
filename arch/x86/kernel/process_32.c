@@ -382,12 +382,21 @@ extern void kernel_thread_helper(void);
 /*
  * Create a kernel thread
  */
+/**
+ * 创建一个新的内核线程
+ * fn-要执行的内核函数的地址。
+ * arg-要传递给函数的参数
+ * flags-一组clone标志
+ */
 int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 {
 	struct pt_regs regs;
 
 	memset(&regs, 0, sizeof(regs));
-
+	/**
+	 * 内核栈地址，为其赋初值。
+	 * do_fork将从这里取值来为新线程初始化CPU。
+	 */
 	regs.ebx = (unsigned long) fn;
 	regs.edx = (unsigned long) arg;
 
@@ -395,11 +404,20 @@ int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 	regs.xes = __USER_DS;
 	regs.xfs = __KERNEL_PERCPU;
 	regs.orig_eax = -1;
+	/**
+	 * 把eip设置成kernel_thread_helper，这样，新线程将执行fn函数。如果函数结束，将执行do_exit
+	 * fn的返回值作为do_exit的参数。
+	 */
 	regs.eip = (unsigned long) kernel_thread_helper;
 	regs.xcs = __KERNEL_CS | get_kernel_rpl();
 	regs.eflags = X86_EFLAGS_IF | X86_EFLAGS_SF | X86_EFLAGS_PF | 0x2;
 
 	/* Ok, create the new process.. */
+	/**
+	 * CLONE_VM避免复制调用进程的页表。由于新的内核线程无论如何都不会访问用户态地址空间。
+	 * 所以复制只会造成时间和空间的浪费。
+	 * CLONE_UNTRACED标志保证内核线程不会被跟踪，即使调用进程被跟踪。
+	 */
 	return do_fork(flags | CLONE_VM | CLONE_UNTRACED, 0, &regs, 0, NULL, NULL);
 }
 EXPORT_SYMBOL(kernel_thread);

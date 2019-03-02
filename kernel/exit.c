@@ -119,14 +119,22 @@ static void __exit_signal(struct task_struct *tsk)
 		sig->sum_sched_runtime += tsk->se.sum_exec_runtime;
 		sig = NULL; /* Marker for below. */
 	}
-
+	/**
+	 * __unhash_process将进程从各种hash表中摘除。它执行:
+	 *    变量nr_threads减1
+	 *    两次调用detach_pid，分别从PIDTYPE_PID和PIDTYPE_TGID类型的PID散列表中删除进程描述符。
+	 *    如果进程是线程组的领头进程，那么再调用两次detach_pid，从PIDTYPE_PGID和PIDTYPE_SID类型的散列表中删除进程描述符。
+	 *    用宏REMOVE_LINKS从进程链表中解除进程描述符的链接。
+	 */
 	__unhash_process(tsk);
 
 	tsk->signal = NULL;
 	tsk->sighand = NULL;
 	spin_unlock(&sighand->siglock);
 	rcu_read_unlock();
-
+	/**
+	 * 删除信号处理函数。
+	 */
 	__cleanup_sighand(sighand);
 	clear_tsk_thread_flag(tsk,TIF_SIGPENDING);
 	flush_sigqueue(&tsk->pending);
@@ -139,6 +147,12 @@ static void __exit_signal(struct task_struct *tsk)
 
 static void delayed_put_task_struct(struct rcu_head *rhp)
 {
+	/**
+	 * 递减进程描述符的使用计数器。如果计数器变成0,则终止所有残留的对进程的引用。
+	 *     递减进程所有者的user_struct数据结构的使用计数器。如果计数为0，就释放该结构。
+	 *     释放进程描述符以及thread_info描述符和内核态堆栈所占用的内存区域。
+	 		rcu机制
+	 */
 	put_task_struct(container_of(rhp, struct task_struct, rcu));
 }
 /**
@@ -155,8 +169,16 @@ repeat:
 	atomic_dec(&p->user->processes);
 	proc_flush_task(p);
 	write_lock_irq(&tasklist_lock);
+	/**
+	 * 如果进程正被跟踪，函数将它从调试程序的ptrace_children链表中删除，并让该进程重新属于初始的父进程。
+	 */
 	ptrace_unlink(p);
 	BUG_ON(!list_empty(&p->ptrace_list) || !list_empty(&p->ptrace_children));
+	/**
+	 * 删除所有的挂起信号并释放进程的signal_struct描述符。
+	 * 如果该描述符不再被其他的轻量级进程使用，函数进一步删除这个数据结构。
+	 * 它还会调用exit_itimers，删除所有POSIX时间间隔定时器。?
+	 */
 	__exit_signal(p);
 
 	/*
@@ -165,9 +187,15 @@ repeat:
 	 * group leader's parent process. (if it wants notification.)
 	 */
 	zap_leader = 0;
-	leader = p->group_leader;
+	leader = p->group_leader;	
+	/**
+	 * 如果进程不是线程组的领头进程，领头进程处于僵死状态，并且进程是线程组的最后一个成员。
+	 */
 	if (leader != p && thread_group_empty(leader) && leader->exit_state == EXIT_ZOMBIE) {
 		BUG_ON(leader->exit_signal == -1);
+		/**
+		 * 向领头进程的父进程发送一个信号，通知它:进程已经死亡。
+		 */
 		do_notify_parent(leader, leader->exit_signal);
 		/*
 		 * If we were the last child thread and the leader has
@@ -932,7 +960,11 @@ static inline void exit_child_reaper(struct task_struct *tsk)
 	 */
 	zap_pid_ns_processes(tsk->nsproxy->pid_ns);
 }
-
+/**
+ * 所有进程的终止都是本函数处理的。
+ * 它从内核数据结构中删除对终止进程的大部分引用（注：不是全部，进程描述符就不是）
+ * 它接受进程的终止代码作为参数。
+ */
 fastcall NORET_TYPE void do_exit(long code)
 {
 	struct task_struct *tsk = current;
@@ -970,6 +1002,9 @@ fastcall NORET_TYPE void do_exit(long code)
 		 * OWNER_DIED bit is set by now or we push the blocked
 		 * task into the wait for ever nirwana as well.
 		 */
+		/**
+	 * PF_EXITING表示进程的状态：正在被删除。
+	 */
 		tsk->flags |= PF_EXITPIDONE;
 		if (tsk->io_context)
 			exit_io_context();
@@ -1017,25 +1052,42 @@ fastcall NORET_TYPE void do_exit(long code)
 	//设置进程退出码
 	tsk->exit_code = code;
 	taskstats_exit(tsk, group_dead);
-	//销毁进程的
+	/**
+	 * exit_mm从进程描述符中分离出分页相关的描述符。
+	 * 如果没有其他进程共享这些数据结构，就删除这些数据结构。
+	 */
 	exit_mm(tsk);
 
 	if (group_dead)
 		acct_process();
-	//信号量
+	/**
+	 * exit_sem从进程描述符中分离出信号量相关的描述符
+	 */
 	exit_sem(tsk);
-	//文件系统
+	/**
+	 * __exit_files从进程描述符中分离出文件系统相关的描述符
+	 */
 	__exit_files(tsk);
+	/**
+	 * __exit_fs从进程描述符中分离出打开文件描述符相关的描述符
+	 */
 	__exit_fs(tsk);
 	check_stack_usage();
 	//进程的thread_struct 结构
+	/**
+	 * exit_thread从进程描述符中分离出IO权限位图相关的描述符
+	 */
 	exit_thread();
 	cgroup_exit(tsk, 1);
 	exit_keys(tsk);
 
 	if (group_dead && tsk->signal->leader)
 		disassociate_ctty(1);
-
+	/**
+	 * 如果实现了被杀死进程的执行域和可执行格式的内核函数在内核模块中
+	 * 就递减它们的值。
+	 * 注：这应该是为了防止意外的卸载模块。
+	 */
 	module_put(task_thread_info(tsk)->exec_domain->module);
 	if (tsk->binfmt)
 		module_put(tsk->binfmt->module);
@@ -1077,10 +1129,20 @@ fastcall NORET_TYPE void do_exit(long code)
 	preempt_disable();
 	/* causes final put_task_struct in finish_task_switch(). */
 	tsk->state = TASK_DEAD;
-
+/**
+	 * 完了，让其他线程运行吧
+	 * 因为schedule会忽略处于EXIT_ZOMBIE状态的进程，所以进程现在是不会再运行了。
+	 */
 	schedule();
+	/**
+	 * 当然，谁还会让死掉的进程继续运行，说明内核一定是错了
+	 * 注：难道schedule被谁改了，没有判断EXIT_ZOMBIE？？？
+	 */
 	BUG();
 	/* Avoid "noreturn function does return".  */
+	/**
+	 * 仅仅为了防止编译器报警告信息而已，仅此而已。
+	 */
 	for (;;)
 		cpu_relax();	/* For when BUG is null */
 }
@@ -1106,14 +1168,23 @@ asmlinkage long sys_exit(int error_code)
  * Take down every thread in the group.  This is called by fatal signals
  * as well as by sys_exit_group (below).
  */
+/**
+ * 杀死属于current线程组的所有进程.它接受进程终止代码作为参数.
+ * 这个参数可能是系统调用exit_group()指定的一个值,也可能是内核提供的一个错误代号.
+ */
 NORET_TYPE void
 do_group_exit(int exit_code)
 {
 	BUG_ON(exit_code & 0x80); /* core dumps don't get here */
-
+	/**
+	 * 检查进程的SIGNAL_GROUP_EXIT,如果不为0,说明内核已经开始为线程组执行退出的过程.
+	 */
 	if (current->signal->flags & SIGNAL_GROUP_EXIT)
 		exit_code = current->signal->group_exit_code;
 	else if (!thread_group_empty(current)) {
+		/**
+		 * 设置进程的SIGNAL_GROUP_EXIT标志,并把终止代号放在sig->group_exit_code
+		 */
 		struct signal_struct *const sig = current->signal;
 		struct sighand_struct *const sighand = current->sighand;
 		spin_lock_irq(&sighand->siglock);
@@ -1122,11 +1193,17 @@ do_group_exit(int exit_code)
 			exit_code = sig->group_exit_code;
 		else {
 			sig->group_exit_code = exit_code;
+			/**
+			 * zap_other_threads杀死线程组中的其他线程.
+			 * 它扫描PIDTYPE_TGID类型的散列表中的每个PID链表,向表中其他进程发送SIGKILL信号.
+			 */
 			zap_other_threads(current);
 		}
 		spin_unlock_irq(&sighand->siglock);
 	}
-
+	/**
+	 * 杀死当前进程,此过程不再返回.
+	 */
 	do_exit(exit_code);
 	/* NOTREACHED */
 }
