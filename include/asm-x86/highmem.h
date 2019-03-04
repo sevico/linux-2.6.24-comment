@@ -58,6 +58,9 @@ extern pte_t *pkmap_page_table;
  * VMALLOC_START
  * high_memory
  */
+/**
+ * 永久内核映射的线性地址起始处。
+ */
 #define PKMAP_BASE ( (FIXADDR_BOOT_START - PAGE_SIZE*(LAST_PKMAP + 1)) & PMD_MASK )
 #define LAST_PKMAP_MASK (LAST_PKMAP-1)
 #define PKMAP_NR(virt)  ((virt-PKMAP_BASE) >> PAGE_SHIFT)

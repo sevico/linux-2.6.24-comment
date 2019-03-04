@@ -63,6 +63,11 @@
 #ifndef CONFIG_NEED_MULTIPLE_NODES
 /* use the per-pgdat data instead for discontigmem - mbligh */
 unsigned long max_mapnr;
+/**
+ * 内存映射数组。管理区描述符的zone_mem_map指向它的一个元素。
+ * 用于伙伴系统。
+ * 
+ */
 struct page *mem_map;
 
 EXPORT_SYMBOL(max_mapnr);

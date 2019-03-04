@@ -35,10 +35,26 @@ typedef unsigned long mm_counter_t;
  */
 struct page {
 //页面标识
+	/**
+	 * 一组标志，也对页框所在的管理区进行编号
+	 * 在不支持NUMA的机器上，flags中字段中管理索引占两位，节点索引占一位。
+	 * 在支持NUMA的32位机器上，flags中管理索引占用两位。节点数目占6位。
+	 * 在支持NUMA的64位机器上，64位的flags字段中，管理区索引占用两位，节点数目占用10位。
+	 */
 	unsigned long flags;		/* Atomic flags, some possibly
 					 * updated asynchronously */
 //引用次数
+	/**
+	 * 页框的引用计数。当小于0表示没有人使用。
+	 * Page_count返回_count+1表示正在使用的人数。
+	 */
 	atomic_t _count;		/* Usage count, see below. */
+	/**
+	 * 页框中的页表项数目（没有则为-1）
+	 *		-1:		表示没有页表项引用该页框。
+	 *		0:		表明页是非共享的。
+	 *		>0:		表示而是共享的。
+	 */
 	union {
 		//映射计数器
 		atomic_t _mapcount;	/* Count of ptes mapped in mms,
@@ -49,6 +65,12 @@ struct page {
 	};
 	union {
 	    struct {
+	    	/**
+	 * 可用于正在使用页的内核成分（如在缓冲页的情况下，它是一个缓冲器头指针。）
+	 * 如果页是空闲的，则该字段由伙伴系统使用。
+	 * 当用于伙伴系统时，如果该页是一个2^k的空闲页块的第一个页，那么它的值就是k.
+	 * 这样，伙伴系统可以查找相邻的伙伴，以确定是否可以将空闲块合并成2^(k+1)大小的空闲块。
+	 */
 		unsigned long private;		/* Mapping-private opaque data:
 					 	 * usually used for buffer_heads
 						 * if PagePrivate set; used for
@@ -57,6 +79,12 @@ struct page {
 						 * system if PG_buddy is set.
 						 */
 		//文件缓存空间
+	    	/**
+	 * 当页被插入页高速缓存时使用或者当页属于匿名页时使用）。
+	 * 		如果mapping字段为空，则该页属于交换高速缓存(swap cache)。
+	 *		如果mapping字段不为空，且最低位为1，表示该页为匿名页。同时该字段中存放的是指向anon_vma描述符的指针。
+	 *		如果mapping字段不为空，且最低位为0，表示该页为映射页。同时该字段指向对应文件的address_space对象。
+	 */
 		struct address_space *mapping;	/* If low bit clear, points to
 						 * inode address_space, or NULL.
 						 * If page mapped as anonymous
@@ -72,9 +100,24 @@ struct page {
 	    struct page *first_page;	/* Compound tail pages */
 	};
 	union {
+		/**
+	 * 作为不同的含义被几种内核成分使用。
+	 * 在页磁盘映象或匿名区中表示存放在页框中的数据的位置。
+	 * 或者它存放在一个换出页标志符。
+	 * 表示所有者的地址空间中以页大小为单位的偏移量，
+	 * 也就是磁盘映像中页中数据的位置
+	 * page->index是区域内的页索引或是页的线性地址除以PAGE_SIZE
+	 * 
+	 * liufeng: 
+	 * 不是页内偏移量，而是该页面相对于文件起始位置，以页面为大小的偏移量
+	 * 如果减去vma->vm_pgoff，就表示该页面的虚拟地址相对于vma起始地址，以页面为大小的偏移量
+	 */
 		pgoff_t index;		/* Our offset within mapping. */
 		void *freelist;		/* SLUB: freelist req. slab lock */
 	};
+	/**
+	 * 包含页的最近最少使用的双向链表的指针。
+	 */
 	struct list_head lru;		/* Pageout list, eg. active_list
 					 * protected by zone->lru_lock !
 					 */
@@ -89,6 +132,10 @@ struct page {
 	 * WANT_PAGE_VIRTUAL in asm/page.h
 	 */
 #if defined(WANT_PAGE_VIRTUAL)
+	/**
+	 * 如果进行了内存映射，就是内核虚拟地址。对存在高端内存的系统来说有意义。
+	 * 否则是NULL
+	 */
 	void *virtual;			/* Kernel virtual address (NULL if
 					   not kmapped, ie. highmem) */
 #endif /* WANT_PAGE_VIRTUAL */

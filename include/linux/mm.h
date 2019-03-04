@@ -476,7 +476,9 @@ static inline int page_to_nid(struct page *page)
 	return (page->flags >> NODES_PGSHIFT) & NODES_MASK;
 }
 #endif
-
+/**
+ * 接收一个页描述符的地址作为它的参数，它读取页描述符的flags字段的高位，并通过zone_table数组来确定相应管理区描述符的地址
+ */
 static inline struct zone *page_zone(struct page *page)
 {
 	return &NODE_DATA(page_to_nid(page))->node_zones[page_zonenum(page)];
