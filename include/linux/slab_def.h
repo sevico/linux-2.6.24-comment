@@ -27,12 +27,16 @@ extern struct cache_sizes malloc_sizes[];
 
 void *kmem_cache_alloc(struct kmem_cache *, gfp_t);
 void *__kmalloc(size_t size, gfp_t flags);
-
+/**
+ * 获得普通高速缓存中的对象。
+ */
 static inline void *kmalloc(size_t size, gfp_t flags)
 {
 	if (__builtin_constant_p(size)) {
 		int i = 0;
-
+		/**
+		 * 找size对应的几何分布大小值。
+		 */
 		if (!size)
 			return ZERO_SIZE_PTR;
 
@@ -44,10 +48,17 @@ static inline void *kmalloc(size_t size, gfp_t flags)
 #include "kmalloc_sizes.h"
 #undef CACHE
 		{
+			/**
+		 * 运行到此，说明要分配的对象太大，不能分配这么大的对象。
+		 */
 			extern void __you_cannot_kmalloc_that_much(void);
 			__you_cannot_kmalloc_that_much();
 		}
 found:
+	/**
+		 * 请求分配的size对应的高速缓存描述符索引号为i
+		 * 根据GFP_DMA，在不同的高速缓存描述符中分配对象。
+		 */
 #ifdef CONFIG_ZONE_DMA
 		if (flags & GFP_DMA)
 			return kmem_cache_alloc(malloc_sizes[i].cs_dmacachep,
@@ -55,6 +66,9 @@ found:
 #endif
 		return kmem_cache_alloc(malloc_sizes[i].cs_cachep, flags);
 	}
+	/*
+     * 主要走这里，只有内置的常量分配才会走上面
+     */
 	return __kmalloc(size, flags);
 }
 

@@ -51,6 +51,12 @@ static void free_pool(mempool_t *pool)
  * functions might sleep - as long as the mempool_alloc() function is not called
  * from IRQ contexts.
  */
+/**
+ * 创建一个新内存池
+ * min_nr-内存元素的个数。
+ * alloc_fn,free_fn-分配和释放内存的方法地址。
+ * pool_data-私有数据。
+ */
 mempool_t *mempool_create(int min_nr, mempool_alloc_t *alloc_fn,
 				mempool_free_t *free_fn, void *pool_data)
 {
@@ -199,6 +205,9 @@ EXPORT_SYMBOL(mempool_destroy);
  * *never* fails when called from process contexts. (it might
  * fail if called from an IRQ context.)
  */
+/**
+ * 从内存池中分配一个元素
+ */
 void * mempool_alloc(mempool_t *pool, gfp_t gfp_mask)
 {
 	void *element;
@@ -215,11 +224,19 @@ void * mempool_alloc(mempool_t *pool, gfp_t gfp_mask)
 	gfp_temp = gfp_mask & ~(__GFP_WAIT|__GFP_IO);
 
 repeat_alloc:
-
+	/**
+	 * 首先试图通过调用alloc函数从基本内存分配器分配一个内存元素。
+	 */
 	element = pool->alloc(gfp_temp, pool->pool_data);
+	/**
+	 * 如果从基本内存分配器中分配成功，就返回获得的内存元素而不涉及到内存池。
+	 */
 	if (likely(element != NULL))
 		return element;
-
+	/**
+	 * 运行到此，就真的需要从内存池中取得元素了。
+	 * 要么是从基本内存池中分配失败，要么是内存池中的元素还比较多。
+	 */
 	spin_lock_irqsave(&pool->lock, flags);
 	if (likely(pool->curr_nr)) {
 		element = remove_element(pool);
@@ -229,14 +246,25 @@ repeat_alloc:
 	spin_unlock_irqrestore(&pool->lock, flags);
 
 	/* We must not sleep in the GFP_ATOMIC case */
+	/**
+	 * 内存池中的对象也用完了。又不允许等待，那就返回NULL吧。
+	 */
 	if (!(gfp_mask & __GFP_WAIT))
 		return NULL;
 
 	/* Now start performing page reclaim */
 	gfp_temp = gfp_mask;
 	init_wait(&wait);
+	/**
+	 * 内存池中的元素用完了，但是允许等待，由于前面已经唤醒了守护进程。
+	 * 现在需要的是让守护线程运行起来，调度一次。
+	 */
 	prepare_to_wait(&pool->wait, &wait, TASK_UNINTERRUPTIBLE);
 	smp_mb();
+	/**
+	 * 在真正调度出去前，再次判断一下curr_nr，是否有其他进程在开中断后释放了元素。
+	 * 注意前面调用了smp_mb()
+	 */
 	if (!pool->curr_nr) {
 		/*
 		 * FIXME: this should be io_schedule().  The timeout is there
@@ -258,6 +286,9 @@ EXPORT_SYMBOL(mempool_alloc);
  *
  * this function only sleeps if the free_fn() function sleeps.
  */
+/**
+ * 释放一个元素到内存池。
+ */
 void mempool_free(void *element, mempool_t *pool)
 {
 	unsigned long flags;
@@ -266,6 +297,9 @@ void mempool_free(void *element, mempool_t *pool)
 		return;
 
 	smp_mb();
+	/**
+	 * 如果内存池未满，就将元素加入到内存池。
+	 */
 	if (pool->curr_nr < pool->min_nr) {
 		spin_lock_irqsave(&pool->lock, flags);
 		if (pool->curr_nr < pool->min_nr) {
@@ -276,6 +310,9 @@ void mempool_free(void *element, mempool_t *pool)
 		}
 		spin_unlock_irqrestore(&pool->lock, flags);
 	}
+	/**
+	 * 否则释放到基本内存分配器中。
+	 */
 	pool->free(element, pool->pool_data);
 }
 EXPORT_SYMBOL(mempool_free);

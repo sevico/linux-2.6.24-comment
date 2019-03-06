@@ -121,6 +121,15 @@ static inline void force_quiescent_state(struct rcu_data *rdp,
  * sections are delimited by rcu_read_lock() and rcu_read_unlock(),
  * and may be nested.
  */
+/**
+ * rcu原语中，写者调用call_rcu来释放数据结构的旧副本。
+ * 当所有CPU都经过静止状态(quiescent state)后，
+ * call_rcu接受rcu_head描述符（通常嵌在要释放在数据结构中）和将要调用的回调函数的地址作为参数。
+ * 一旦回调函数被执行，它通常释放数据结构的旧副本。
+ * call_rcu把回调函数和其参数的地址存放在rcu_head，然后把描述符插入到回调函数的每CPU链表中。
+ * 内核每经过一个时钟滴答，就周期性的检查本地CPU是否经过了一个静止状态。
+ * 如果经过了，本地tasklet(rcu_tasklet)就执行链表中的回调函数。
+ */
 void fastcall call_rcu(struct rcu_head *head,
 				void (*func)(struct rcu_head *rcu))
 {

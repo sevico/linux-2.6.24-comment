@@ -6,7 +6,9 @@
 #else
 # define D(n)
 #endif
-
+/**
+ * 系统为每个CPU预留了13个临时内核映射页表项。这是它们在线性地址表中的下标。
+ */
 enum km_type {
 D(0)	KM_BOUNCE_READ,
 D(1)	KM_SKB_SUNRPC_DATA,
