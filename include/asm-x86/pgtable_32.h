@@ -76,9 +76,18 @@ void paging_init(void);
  * The vmalloc() routines leaves a hole of 4kB between each vmalloced
  * area for the same reason. ;)
  */
+/**
+ * 第一个非连续映射的内存区与连续映射的线性区末尾之间的安全区大小。
+ */
 #define VMALLOC_OFFSET	(8*1024*1024)
+/**
+ * 为非连续内存区保留的线性地址的起始地址。
+ */
 #define VMALLOC_START	(((unsigned long) high_memory + \
 			2*VMALLOC_OFFSET-1) & ~(VMALLOC_OFFSET-1))
+/**
+ * 为非连续内存区保留的线性地址的结束地址。
+ */
 #ifdef CONFIG_HIGHMEM
 # define VMALLOC_END	(PKMAP_BASE-2*PAGE_SIZE)
 #else

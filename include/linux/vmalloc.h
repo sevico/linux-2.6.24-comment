@@ -21,15 +21,42 @@ struct vm_area_struct;
 #ifndef IOREMAP_MAX_ORDER
 #define IOREMAP_MAX_ORDER	(7 + PAGE_SHIFT)	/* 128 pages */
 #endif
-
+/**
+ * 非连续内存区的描述符
+ */
 struct vm_struct {
 	/* keep next,addr,size together to speedup lookups */
+	/**
+	 * 指向下一个vm_struct结构的指针。
+	 */
+	//描述符通过next形成链，链表第一个元素地址存放在vmlist中
 	struct vm_struct	*next;
+	/**
+	 * 内存区内第一个内存单元的线性地址。
+	 */
 	void			*addr;
+	/**
+	 * 内存区大小加4096(内存区之间的安全区的大小)
+	 */
 	unsigned long		size;
+	/**
+	 * 非连续内存区映射的内存的类型。
+	 * VM_ALLOC表示使用vmalloc得到的页.
+	 * VM_MAP表示使用vmap映射的已经被分配的页。
+	 * VM_IOREMAP表示使用ioremap映射的硬件设备的板上内存。
+	 */
 	unsigned long		flags;
+	/**
+	 * 指向nr_pages数组的指针，该数组由指向页描述符的指针组成。
+	 */
 	struct page		**pages;
+	/**
+	 * 内存区填充的页的个数。
+	 */
 	unsigned int		nr_pages;
+	/**
+	 * 一般为0,除非内存已经被创建来映射一个硬件设备IO共享内存。
+	 */
 	unsigned long		phys_addr;
 };
 
