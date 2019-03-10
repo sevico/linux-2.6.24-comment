@@ -38,15 +38,33 @@
  * The per-CPU workqueue (if single thread, we always use the first
  * possible cpu).
  */
+/**
+ * 每个CPU的工作队列描述符
+ * 工作队列与可延迟函数的主要区别在于：工作队列运行在进程上下文，而可延迟函数运行在中断上下文。
+ */
 struct cpu_workqueue_struct {
-
+	/**
+	 * 保护该工作队列的自旋锁
+	 * 虽然每个CPU都有自己的工作队列，但是有时候也需要访问其他CPU的工作队列
+	 * 所以也需要自旋锁	 
+	 */
 	spinlock_t lock;
-
+	/**
+	 * 挂起链表的头结点
+	 */
 	struct list_head worklist;
+	/**
+	 * 等待队列，其中的工作者线程因为等待更多的工作而处于睡眠状态
+	 */
 	wait_queue_head_t more_work;
 	struct work_struct *current_work;
-
+	/**
+	 * 指向workqueue_struct的指针，workqueue_struct中包含了本描述符
+	 */
 	struct workqueue_struct *wq;
+	/**
+	 * 指向工作者线程的进程描述符指针
+	 */
 	struct task_struct *thread;
 
 	int run_depth;		/* Detect run_workqueue() recursion depth */
@@ -55,6 +73,10 @@ struct cpu_workqueue_struct {
 /*
  * The externally visible workqueue abstraction is an array of
  * per-CPU workqueues:
+ */
+/**
+ * 工作队列描述符，它包含有一个NR_CPUS个元素的数组。
+ * 分多个队列的主要目的是每个CPU都有自己的工作队列，避免了多个CPU访问全局数据时，造成TLB不停刷新
  */
 struct workqueue_struct {
 	struct cpu_workqueue_struct *cpu_wq;

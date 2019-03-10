@@ -61,6 +61,11 @@ struct irqaction {
 	//特定设备对应的中断服务程序
 	irq_handler_t handler;
 	//中断处理标志
+	/*flags:
+	 *	SA_INTERRUPT:中断嵌套
+	 *	SA_SAMPLE_RANDOM:这个中断源于物理随机性
+	 *	SA_SHIRQ:中断线共享
+	 */
 	unsigned long flags;
 	cpumask_t mask;
 	//设备名
@@ -68,7 +73,7 @@ struct irqaction {
 	//设备的私有字段，通常用于标识设备，或指向设备驱动程序的数据
 	//驱动程序申请IRQ时将其作为参数传递给中断处理程序
 	void *dev_id;
-	//指向该IRQ线上的下一个irqaction对象
+	//指向该IRQ线上的下一个irqaction对象.共享的时候,通常一根中断线对应很多硬件设备的中断处理例程
 	struct irqaction *next;
 	//IRQ线
 	int irq;
@@ -253,12 +258,12 @@ static inline void __deprecated save_and_cli(unsigned long *x)
 
 enum
 {
-	HI_SOFTIRQ=0,
-	TIMER_SOFTIRQ,
-	NET_TX_SOFTIRQ,
-	NET_RX_SOFTIRQ,
-	BLOCK_SOFTIRQ,
-	TASKLET_SOFTIRQ,
+	HI_SOFTIRQ=0,//处理高优先级的tasklet
+	TIMER_SOFTIRQ,//和时钟中断相关的tasklet
+	NET_TX_SOFTIRQ,//把数据包传送到网卡
+	NET_RX_SOFTIRQ,//从网卡接收到数据包
+	BLOCK_SOFTIRQ,//SCSI命令的后台中断处理
+	TASKLET_SOFTIRQ,//处理常规tasklet
 	SCHED_SOFTIRQ,
 #ifdef CONFIG_HIGH_RES_TIMERS
 	HRTIMER_SOFTIRQ,
@@ -272,6 +277,9 @@ enum
 struct softirq_action
 {
 	//延迟函数
+	/**
+	 * 软中断处理函数
+	 */
 	void	(*action)(struct softirq_action *);
 	//参数
 	void	*data;
@@ -307,10 +315,15 @@ extern void FASTCALL(raise_softirq(unsigned int nr));
 
 struct tasklet_struct
 {
+	//链表中的下一个tasklet
 	struct tasklet_struct *next;
+	//此刻tasklet的状态，一般为TASKLET_STATE_SCHED，表示此tasklet已被调度且正准备运行；此变量还可取TASKLET_STATE_RUN，表示正在运行，用在多处理器的情况下。	
 	unsigned long state;
+	//引用计数器，只有当其值为0时候，tasklet才会被激活；否则被禁止，不能被执行
 	atomic_t count;
+	//函数指针，它指向tasklet处理函数
 	void (*func)(unsigned long);
+	//处理函数的唯一参数为data
 	unsigned long data;
 };
 
@@ -350,14 +363,24 @@ static inline void tasklet_unlock_wait(struct tasklet_struct *t)
 #endif
 
 extern void FASTCALL(__tasklet_schedule(struct tasklet_struct *t));
+/*调度 tasklet 执行，如果tasklet在运行中被调度, 它在完成后会再次运行; 这保证了在其他事件被处理当中发生的事件受到应有的注意. 这个做法也允许一个 tasklet 重新调度它自己*/
 
 static inline void tasklet_schedule(struct tasklet_struct *t)
 {
+	/**
+	 * 检查任务的TASKLET_STATE_SCHED标志，如果已经设置，就退出。
+	 * 设置了TASKLET_STATE_SCHED，表示它已经被调度到软中断上了，现在处于挂起状态
+	 * 不能(也不用)再调度了。
+	 *
+	 * 既然TASKLET_STATE_SCHED标志已经保证一个tasklet不会在多个CPU上同时被插入到链表中，为什么还需要TASKLET_STATE_RUN标志呢？
+	 * 这是因为在调用回调函数前，TASKLET_STATE_SCHED可能被清除，如果只有TASKLET_STATE_SCHED这个标志的话，可能还是会造成过程重入。
+	 */
 	if (!test_and_set_bit(TASKLET_STATE_SCHED, &t->state))
 		__tasklet_schedule(t);
 }
 
 extern void FASTCALL(__tasklet_hi_schedule(struct tasklet_struct *t));
+/*和tasklet_schedule类似，只是在更高优先级执行。当软中断处理运行时, 它处理高优先级 tasklet 在其他软中断之前，只有具有低响应周期要求的驱动才应使用这个函数, 可避免其他软件中断处理引入的附加周期*/
 
 static inline void tasklet_hi_schedule(struct tasklet_struct *t)
 {
@@ -365,12 +388,14 @@ static inline void tasklet_hi_schedule(struct tasklet_struct *t)
 		__tasklet_hi_schedule(t);
 }
 
+/*和tasklet_disable类似，但是tasklet可能仍然运行在另一个 CPU */
 
 static inline void tasklet_disable_nosync(struct tasklet_struct *t)
 {
 	atomic_inc(&t->count);
 	smp_mb__after_atomic_inc();
 }
+/*函数暂时禁止给定的tasklet被tasklet_schedule调度，直到这个tasklet被再次被enable；若这个tasklet当前在运行, 这个函数忙等待直到这个tasklet退出*/
 
 static inline void tasklet_disable(struct tasklet_struct *t)
 {
@@ -378,6 +403,7 @@ static inline void tasklet_disable(struct tasklet_struct *t)
 	tasklet_unlock_wait(t);
 	smp_mb();
 }
+/*使能一个之前被disable的tasklet；若这个tasklet已经被调度, 它会很快运行。tasklet_enable和tasklet_disable必须匹配调用, 因为内核跟踪每个tasklet的"禁止次数"*/ 
 
 static inline void tasklet_enable(struct tasklet_struct *t)
 {

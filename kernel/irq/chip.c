@@ -336,11 +336,35 @@ handle_level_irq(unsigned int irq, struct irq_desc *desc)
 
 	spin_lock(&desc->lock);
 	//向中断控制器发送中断应答命令，并屏蔽该中断
+	/**
+	 * 如果是旧的8259A PIC,ack就是mask_and_ack_8259A,它应答PIC上的中断并禁用这条IRQ线.屏蔽IRQ线是为了确保在这个中断处理程序结束前,
+	 * CPU不进一步接受这种中断的出现.
+	 * do_IRQ是以禁止本地中断运行,事实上,CPU控制单元自动清eflags寄存器的IF标志.因为中断处理程序是通过IDT中断门调用的.
+	 * 不过,内核在执行这个中断的中断服务例程之前可能会重新激活本地中断.
+	 * 在使用APIC时,应答中断信赖于中断类型,可能是ack,也可能延迟到中断处理程序结束(也就是应答由end方法去做).
+	 * 无论如何,中断处理程序结束前,本地APIC不进一步接收这种中断,尽管这种中断可能会被其他CPU接受.
+	 */
 	mask_ack_irq(desc, irq);
 	//如果另外一个 CPU 在处理同一个中断，则退出
+	/**
+	 * IRQ_DISABLED和IRQ_INPROGRESS被设置时,什么都不做(action==NULL)
+	 * 即使IRQ线被禁止,CPU也可能执行do_IRQ函数.首先,可能是因为挽救丢失的中断,其次,也可能是有问题的主板产生伪中断.
+	 * 所以,是否真的执行中断代码,需要根据IRQ_DISABLED标志来判断,而不仅仅是禁用IRQ线.
+	 * IRQ_INPROGRESS标志的作用是:如果一个CPU正在处理一个中断,那么它会设置它的IRQ_INPROGRESS.这样,其他CPU上发生同样的中断
+	 * 就可以检查是否在其他CPU上正在处理同种类型的中断,如果是,就什么都不做,这样做有以下好处:
+	 * 一是使内核结构简单,驱动程序的中断服务例程式不必是可重入的.二是可以避免弄脏当前CPU的硬件高速缓存.
+	 */
 	if (unlikely(desc->status & IRQ_INPROGRESS))
 		goto out_unlock;
+		/**
+	 * 清除IRQ_WAITING和IRQ_REPLAY
+	 * 这几个标志可以很好的解决中断重入的问题.
+	 * IRQ_REPLAY标志是"挽救丢失的中断"所用.在此不详述.
+	 */
 	desc->status &= ~(IRQ_REPLAY | IRQ_WAITING);
+	/**
+	 * 中断发生次数计数.
+	 */
 	kstat_cpu(cpu).irqs[irq]++;
 
 	/*
@@ -350,7 +374,10 @@ handle_level_irq(unsigned int irq, struct irq_desc *desc)
 	action = desc->action;
 	if (unlikely(!action || (desc->status & IRQ_DISABLED)))
 		goto out_unlock;
-
+	/*
+		 * 确定我们要处理了，就设置IRQ_INPROGRESS 标志，
+		 * 
+	*/
 	desc->status |= IRQ_INPROGRESS;
 	spin_unlock(&desc->lock);
 
@@ -363,6 +390,9 @@ handle_level_irq(unsigned int irq, struct irq_desc *desc)
 	if (!(desc->status & IRQ_DISABLED) && desc->chip->unmask)
 		desc->chip->unmask(irq);
 out_unlock:
+/**
+	 * 好,工作已经全部完成了,释放自旋锁吧.注意两个锁的配对使用方法.
+	 */
 	spin_unlock(&desc->lock);
 }
 

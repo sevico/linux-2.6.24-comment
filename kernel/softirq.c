@@ -43,7 +43,10 @@
 irq_cpustat_t irq_stat[NR_CPUS] ____cacheline_aligned;
 EXPORT_SYMBOL(irq_stat);
 #endif
-
+/**
+ * 所有的软中断，目前使用了前六个。数组的下标就是软中断的优先级。
+ * 下标越低，优先级越高。
+ */
 static struct softirq_action softirq_vec[32] __cacheline_aligned_in_smp;
 
 static DEFINE_PER_CPU(struct task_struct *, ksoftirqd);
@@ -53,6 +56,9 @@ static DEFINE_PER_CPU(struct task_struct *, ksoftirqd);
  * but we also don't want to introduce a worst case 1/HZ latency
  * to the pending events, so lets the scheduler to balance
  * the softirq load for us.
+ */
+/*
+ * 唤醒本地CPU的ksoftirqd内核线程
  */
 static inline void wakeup_softirqd(void)
 {
@@ -257,14 +263,23 @@ asmlinkage void do_softirq(void)
 {
 	__u32 pending;
 	unsigned long flags;
-
+	/**
+	 * 如果in_interrupt返回真，说明系统要么是处于中断中，要么是禁用了软中断。
+	 * 请注意in_interrupt()的实现代码：preempt_count() & (HARDIRQ_MASK | SOFTIRQ_MASK)
+	 * 它判断当前是否在硬件中断中，或者是否在软中断中。
+	 */
 	if (in_interrupt())
 		return;
-
+	/**
+	 * 在此时需要关闭中断，因为接下来我们需要将判断是否有挂起的软中断
+	 * 如果不在关中断的情况下访问这个标志，那么，这个标志就可能被中断程序修改。
+	 * 从另一个方面来说，我们还会在后面切换堆栈，这也需要在关中断中进行。
+	 * 开中断的时机在__do_softirq中。当然，本函数结束时，也会恢复中断标志。
+	 */
 	local_irq_save(flags);
 
 	pending = local_softirq_pending();
-
+	/* 有挂起的软中断 */
 	if (pending)
 		__do_softirq();
 
@@ -315,6 +330,9 @@ void irq_exit(void)
  */
 inline fastcall void raise_softirq_irqoff(unsigned int nr)
 {
+	/**
+	 * 标记nr对应的软中断为挂起状态。
+	 */
 	__raise_softirq_irqoff(nr);
 
 	/*
@@ -326,19 +344,39 @@ inline fastcall void raise_softirq_irqoff(unsigned int nr)
 	 * Otherwise we wake up ksoftirqd to make sure we
 	 * schedule the softirq soon.
 	 */
+	/**
+	 * in_interrupt是判断是否在中断上下文中。
+	 * 程序在中断上下文中，表示：要么当前禁用了软中断，要么处在硬中断嵌套中，此时都不用唤醒ksoftirqd内核线程。
+	 */
 	if (!in_interrupt())
 		wakeup_softirqd();
 }
-
+/**
+ * 激活软中断
+ * nr-要激活的软中断下标
+ */
 void fastcall raise_softirq(unsigned int nr)
 {
 	unsigned long flags;
-
+	/**
+	 * 禁用本地CPU中断。
+	 */
 	local_irq_save(flags);
+	/**
+	 * raise_softirq_irqoff是本函数的执行体，不过它是在关中断下运行。
+	 */
 	raise_softirq_irqoff(nr);
+	/**
+	 * 打开本地中断
+	 */
 	local_irq_restore(flags);
 }
-
+/**
+ * 初始化软中断
+ * nr-软中断下标
+ * action-软中断处理函数
+ * data-软中断处理函数的参数。执行处理函数时，将它回传给软中断。
+*/
 void open_softirq(int nr, void (*action)(struct softirq_action*), void *data)
 {
 	softirq_vec[nr].data = data;
@@ -359,11 +397,23 @@ static DEFINE_PER_CPU(struct tasklet_head, tasklet_hi_vec) = { NULL };
 void fastcall __tasklet_schedule(struct tasklet_struct *t)
 {
 	unsigned long flags;
-
+	/**
+	 * 首先禁止本地中断。
+	 */
 	local_irq_save(flags);
+	/**
+	 * 将tasklet挂到tasklet_vec[n]链表的头。
+	 */
 	t->next = __get_cpu_var(tasklet_vec).list;
 	__get_cpu_var(tasklet_vec).list = t;
+	/**
+	 * raise_softirq_irqoff激活TASKLET_SOFTIRQ软中断。
+	 * 它与raise_soft相似，但是它假设已经关本地中断了。
+	 */
 	raise_softirq_irqoff(TASKLET_SOFTIRQ);
+	/**
+	 * 恢复IF标志。
+	 */
 	local_irq_restore(flags);
 }
 
@@ -460,6 +510,7 @@ void tasklet_init(struct tasklet_struct *t,
 }
 
 EXPORT_SYMBOL(tasklet_init);
+/*确保了 tasklet 不会被再次调度来运行，通常当一个设备正被关闭或者模块卸载时被调用。如果 tasklet 正在运行, 这个函数等待直到它执行完毕。若 tasklet 重新调度它自己，则必须阻止在调用 tasklet_kill 前它重新调度它自己，如同使用 del_timer_sync*/
 
 void tasklet_kill(struct tasklet_struct *t)
 {
@@ -507,9 +558,22 @@ static int ksoftirqd(void * __bind_cpu)
 			if (cpu_is_offline((long)__bind_cpu))
 				goto wait_to_die;
 			//处理软件中断
+			/**
+			 * 回想一下，do_softirq会设置软中断计数标志，而ininterrupt会根据这个标志返回是否处于中断上下文。
+			 * 其实，现在我们是在线程上下文执行do_softirq。
+			 * 所以说，ininterrupt有点名不符实。
+			 * liufeng: 线程上线问就不会发现有软中断计数器的增加?
+			 */
 			do_softirq();
 			preempt_enable_no_resched();
+			/**
+			 * 增加一个调度点，仅此而已。
+			 */
 			cond_resched();
+			/**
+			 * 现在是增加抢占计数，而不是软中断计数。
+			 * 增加软中断计数，防止软中断重入是在do_softirq中。
+			 */
 			preempt_disable();
 		}
 		preempt_enable();

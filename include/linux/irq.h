@@ -103,6 +103,7 @@ struct irq_chip {
 	void		(*shutdown)(unsigned int irq);
 	//激活与禁止指定的IRQ线
 	void		(*enable)(unsigned int irq);
+	/*禁止从IRQ线产生中断*/
 	void		(*disable)(unsigned int irq);
 	//应答指定的IRQ线
 	void		(*ack)(unsigned int irq);
@@ -169,6 +170,7 @@ struct irq_desc {
 	//指向该irq线中断请求队列的头
 	struct irqaction	*action;	/* IRQ action list */
 	//该irq线的状态标志
+	/* IRQ的状态;IRQ 是否被禁止了，有关IRQ的设备当前是否正被自动检测*/
 	unsigned int		status;		/* IRQ status */
 	//为0，表示该IRQ线被激活，如果为一个正数，表示该IRQ线被禁止的次数，通常称为禁止深度
 	unsigned int		depth;		/* nested irq disables */

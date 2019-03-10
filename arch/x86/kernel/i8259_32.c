@@ -399,7 +399,7 @@ void __init init_ISA_irqs (void)
 /* Overridden in paravirt.c */
 //init_IRQ是 native_init_IRQ的别名
 void init_IRQ(void) __attribute__((weak, alias("native_init_IRQ")));
-
+/*IRQ中断的设置*/
 void __init native_init_IRQ(void)
 {
 	int i;
@@ -412,6 +412,11 @@ void __init native_init_IRQ(void)
 	 * Cover the whole vector space, no vector can escape
 	 * us. (some of these will be overridden and become
 	 * 'special' SMP interrupts)
+	 */
+	/*
+	 * 通过替换setup_idt() 所建立的中断门来更新IDT
+	 * interrupt 数组第n 项中存放IRQn 的中断处理程序的地址
+	 * 这里不包括128(0x80) 号中断向量相关的中断门，因为它用于系统调用的编程异常
 	 */
 	//设置对应的中断向量表
 	for (i = 0; i < (NR_VECTORS - FIRST_EXTERNAL_VECTOR); i++) {
@@ -430,6 +435,7 @@ void __init native_init_IRQ(void)
 		中断处理函数地址保存在interrupt数组中
 		*/
 		if (!test_bit(vector, used_vectors))
+			//调用了set_intr_gate(vector, interrupt[i])为第n条中断线设置的中断处理函数为interrupt[n- FIRST_EXTERNAL_VECTOR]
 			set_intr_gate(vector, interrupt[i]);
 	}
 

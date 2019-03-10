@@ -1102,6 +1102,7 @@ asmlinkage void math_emulate(long arg)
  * Pentium F0 0F bugfix can have resulted in the mapped
  * IDT being write-protected.
  */
+/*设定中断门*/
 void set_intr_gate(unsigned int n, void *addr)
 {
 	_set_gate(n, DESCTYPE_INT, addr, __KERNEL_CS);
@@ -1110,27 +1111,37 @@ void set_intr_gate(unsigned int n, void *addr)
 /*
  * This routine sets up an interrupt gate at directory privilege level 3.
  */
+/*设定系统中断门*/ 
 static inline void set_system_intr_gate(unsigned int n, void *addr)
 {
 	_set_gate(n, DESCTYPE_INT | DESCTYPE_DPL3, addr, __KERNEL_CS);
 }
-
+/*设定陷阱门*/
 static void __init set_trap_gate(unsigned int n, void *addr)
 {
 	_set_gate(n, DESCTYPE_TRAP, addr, __KERNEL_CS);
 }
-
+/*设定系统门*/
 static void __init set_system_gate(unsigned int n, void *addr)
 {
+	/*
+     * 设置如下字段
+     *  Segment Selector: 内核代码段 __KERNEL_CS的段选择符
+     *  Offset: 指向system_call()系统调用处理程序的指针
+     *  Type: 设置为15，表示这个异常是一个陷阱，相应的处理程序不禁止可屏蔽中断
+     *  DPL: 设置为3，这就允许用户态进程调用这个异常处理程序
+	 */
 	_set_gate(n, DESCTYPE_TRAP | DESCTYPE_DPL3, addr, __KERNEL_CS);
 }
-
+/*设定任务门*/
 static void __init set_task_gate(unsigned int n, unsigned int gdt_entry)
 {
 	_set_gate(n, DESCTYPE_TASK, (void *)0, (gdt_entry<<3));
 }
 
-
+/*
+ * 调用trap_init()来设置系统规定的异常与中断
+ */
 void __init trap_init(void)
 {
 	int i;
@@ -1146,7 +1157,9 @@ void __init trap_init(void)
 #ifdef CONFIG_X86_LOCAL_APIC
 	init_apic_mappings();
 #endif
-
+	/*
+	 * 设置了0~19的中断/异常处理程序,这些都是intel所规定的,除些之后设置了系统调用入口(用户空间的 int SYSCALL_VECTOR )
+ 	 */
 	set_trap_gate(0,&divide_error);
 	set_intr_gate(1,&debug);
 	set_intr_gate(2,&nmi);
@@ -1155,6 +1168,9 @@ void __init trap_init(void)
 	set_trap_gate(5,&bounds);
 	set_trap_gate(6,&invalid_op);
 	set_trap_gate(7,&device_not_available);
+	/* 通过GDT_ENTRY_DOUBLEFAULT_TSS 取得GDT 第32 表项的值填充eip和esp
+	 * 并在私有栈上执行doublefault_fn() 异常处理函数
+	 */
 	set_task_gate(8,GDT_ENTRY_DOUBLEFAULT_TSS);
 	set_trap_gate(9,&coprocessor_segment_overrun);
 	set_trap_gate(10,&invalid_TSS);

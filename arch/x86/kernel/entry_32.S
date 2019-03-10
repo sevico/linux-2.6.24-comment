@@ -97,6 +97,16 @@ VM_MASK		= 0x00020000
 #define resume_userspace_sig	resume_userspace
 #endif
 # 现场保护
+/*
+ * 相当于把中断发生时,硬件没有保存的寄存器压栈保存下来.把DS.ES设为了__USER_DS是有一定原因的,参考上节所述.
+ *
+ * 设置为__USER_DS的原因:
+ * (检查ds、es、fs及gs段寄存器的内容，如果其中一个寄存器包含的选择符是一个段描述符，并且其DPL值小于CPL，那么，清相关的段寄存器。
+ *  控制单元这么做是为了禁止用户态的程序利用内核以前所用的段寄存器。如果不清除这些寄存器的话，恶意的用户程序就会利用他们来访问内核地址空间。
+ *  注意到4: 举例说明一下.如果通过系统调用进入内核态.然后将DS,ES的值赋为__KERNEL_DS(在2.4 的内核里),处理完后(调用iret后),
+ *           恢复CS,EIP的值,此时CS的CPL是3.因为DS,ES被设为了__KERNEL_DS,所以其DPL是 0,所以要将DS,ES中的值清除.在2.6内核中,发生中断或异常后,
+ *           将DS,ES的值设为了__USER_DS,避免了上述的清除过程,提高了效率.)
+ */
 #define SAVE_ALL \
 	cld; \ # 关中断
 	pushl %fs; \
@@ -239,35 +249,62 @@ END(ret_from_fork)
 	# userspace resumption stub bypassing syscall exit tracing
 	ALIGN
 	RING0_PTREGS_FRAME
+	/*异常返回分析: 异常返回的后半部份与IRQ中断返回相比只是多了一个preempt_stop的处理.*/
 ret_from_exception:
 	# 关中断，对于x86平台就是cli指令
+	/**
+	 * 在中断返回前，handle_IRQ_event调用local_irq_disable禁止了中断
+	 * 所以在中断返回时，不用关中断，但是在异常返回时，需要将中断关闭。
+	 */
 	preempt_stop(CLBR_ANY)
 	# 对于中断返回，中断已经是关闭的
+	/*IRQ中断返回分析*/
 ret_from_intr:
 	# 把当前进程的thread_info结构指针存入 ebp 寄存器
-	GET_THREAD_INFO(%ebp)
+	/**
+	 * 把当前thread_info装载到ebp中。
+	 */
+	GET_THREAD_INFO(%ebp)//取得当前过程的task描述符
 	# 根据中断现场的 cs 和 eip 寄存器判断中断前夕的运行状态
 check_userspace:
-	movl PT_EFLAGS(%esp), %eax	# mix EFLAGS and CS
-	movb PT_CS(%esp), %al
+/**
+	 * 接下来判断EFLAGS和CS，确定是否运行在用户态，是否是VM模式。
+	 */
+	movl PT_EFLAGS(%esp), %eax	# mix EFLAGS and CS//中断前的EFLAGS中的值存进EAX
+	movb PT_CS(%esp), %al//将中断前的CS低16移至AL
+	//#至此EFLAGS 的H16和CS的L16构成了EAX的内容
+	//EFLAGS中有一位表示是否运行在vm86模式中,CS的最低二位表示当前进程的运行级别
 	andl $(VM_MASK | SEGMENT_RPL_MASK), %eax
 	cmpl $USER_RPL, %eax
 	# 返回内核态
+	/**
+	 * 如果是运行在内核态，并且不是VM模式，就跳到resume_kernel，
+	 * 否则跳转到resume_userspace
+	 */
+	 // 如果中断前不是在用户空间,且不是在VM86模式下,跳转到resume_kernel
 	jb resume_kernel		# not returning to v8086 or userspace
 # 返回用户态，处理延迟的调度请求，以及延迟的信号
+/**
+ * 恢复用户态程序的流程入口。
+ */
 ENTRY(resume_userspace)
 	LOCKDEP_SYS_EXIT
  	DISABLE_INTERRUPTS(CLBR_ANY)	# make sure we don't miss an interrupt
 					# setting need_resched or sigpending
 					# between sampling and the iret
 	# 检查当前进程是否有延迟的请求等待处理
-	movl TI_flags(%ebp), %ecx
+	movl TI_flags(%ebp), %ecx//将task->flags成员的值存进ecx 
+	/**
+	 * 如果设置了_TIF_WORK_MASK中任何一位，就表示有等待处理的事情
+	 * 跳到work_pending处理这些挂起的事件。
+	 * 否则调用restore_all回到用户态。
+	 */
 	andl $_TIF_WORK_MASK, %ecx	# is there any work to be done on
 					# int/exception return?
 	# 处理延迟请求
 	jne work_pending
 	# 恢复现场，中断返回
-	jmp restore_all
+	jmp restore_all//所有事情都处理完了
 END(ret_from_exception)
 
 #ifdef CONFIG_PREEMPT
@@ -422,9 +459,12 @@ restore_all:
 restore_nocheck:
 	TRACE_IRQS_IRET
 restore_nocheck_notrace:
+//pop在SAVE_ALL中入栈的寄存器
 	RESTORE_REGS
+	//在SAVE_ALL之前压入了一个中断向量的负值或者是系统调用号
 	addl $4, %esp			# skip orig_eax/error_code
 	CFI_ADJUST_CFA_OFFSET -4
+	//iret中断返回,交给硬件完成中断的返回工作
 1:	INTERRUPT_RETURN
 .section .fixup,"ax"
 iret_exc:
@@ -615,6 +655,11 @@ vector=0
  .if vector
 	CFI_ADJUST_CFA_OFFSET -4
  .endif
+ # 把中断号取反，内核用负数表示所有的中断，因为正数表示系统调用，
+ # 当引用这个数的时候，可以对所有的中断处理程序都执行相同的代码，这段通用代码开始于标签common_interrupt
+ # 相当于,interrupt[i]执行下列操作:
+ # Pushl $~(vector)	  //中断号取反再压栈
+ #Jmp common_interrupt		 //跳转至一段公共的处理函数
 1:	pushl $~(vector)
 	CFI_ADJUST_CFA_OFFSET 4
 	jmp common_interrupt
@@ -634,11 +679,27 @@ END(interrupt)
  * so IRQ-flags tracing has to follow that:
  */
 	ALIGN
+	/*IRQ入口,中断入口*/
 common_interrupt:
+/*common_interrupt 首先调用 SAVE ALL保存寄存器*/
+/*
+ * SAVE_ALL可以在栈中保存中断处理程序可能会使用的所有CPU寄存器
+ * 但eflags, cs, eip, ss 及esp除外，因为这些寄存器已经由控制单元自动保存了
+ * 然后这个宏把用户数据段的选择符装到ds和es寄存器
+ */
 	SAVE_ALL
 	TRACE_IRQS_OFF
+	/*寄存器保存后，栈顶的地址被存放到eax寄存器里面*/
 	movl %esp,%eax
+	/*
+	 * 调用do_IRQ()函数,
+	 * 调用相应的中断处理函数
+	 */
 	call do_IRQ
+	/* 
+	 * 执行do_IRQ的ret指令的时候，控制转移到ret_from_intr()函数
+	 * 从中断返回
+	 */
 	jmp ret_from_intr
 ENDPROC(common_interrupt)
 	CFI_ENDPROC

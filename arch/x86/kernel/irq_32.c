@@ -105,10 +105,19 @@ fastcall unsigned int do_IRQ(struct pt_regs *regs)
 		}
 	}
 #endif
+/*CONFIG_4KSTACKS: 如果thread_union大小为4KB*/
 
 #ifdef CONFIG_4KSTACKS
-
+	/**
+	 * 如果中断栈使用不同的的栈,就需要切换栈.
+	 */
+	/*
+	 * 执行current_thread_info 以获取与内核栈相连的thread_info描述符的地址保存到curctx
+	 */
 	curctx = (union irq_ctx *) current_thread_info();
+	/*
+	 * 硬中断请求栈地址保存到irqctx
+	 */
 	irqctx = hardirq_ctx[smp_processor_id()];
 
 	/*
@@ -117,12 +126,26 @@ fastcall unsigned int do_IRQ(struct pt_regs *regs)
 	 * handler) we can't do that and just have to keep using the
 	 * current stack (which is the irq stack already after all)
 	 */
+	/**
+	 * 当前在使用内核栈,而不是硬中断请求栈.就需要切换栈
+	 * 
+	 * curctx 和irqctx 相等，说明内核已经在使用硬件中断请求栈，
+	 * 这种情况发生在内核处理另外一个中断时又产生了中断请求的时候
+	 * 不相等就要切换内核栈
+	 */
 	if (curctx != irqctx) {
 		int arg1, arg2, ebx;
 
 		/* build the stack frame on the IRQ stack */
 		isp = (u32*) ((char*)irqctx + sizeof(*irqctx));
+		/**
+		 * 保存当前进程描述符指针
+		 */
 		irqctx->tinfo.task = curctx->tinfo.task;
+		/**
+		 * 把esp栈指针寄存器的当前值存入irqctx的thread_info(内核oops时使用)
+		 * current_stack_pointer 用来在C 中获得当前的栈指针
+		 */
 		irqctx->tinfo.previous_esp = current_stack_pointer;
 
 		/*
@@ -132,7 +155,10 @@ fastcall unsigned int do_IRQ(struct pt_regs *regs)
 		irqctx->tinfo.preempt_count =
 			(irqctx->tinfo.preempt_count & ~SOFTIRQ_MASK) |
 			(curctx->tinfo.preempt_count & SOFTIRQ_MASK);
-
+			/**
+		 * 将中断请求栈的栈顶装入esp,isp即为中断栈顶
+		 * 调用完__do_IRQ后,从ebx中恢复esp
+		 */
 		asm volatile(
 			"       xchgl  %%ebx,%%esp      \n"
 			"       call   *%%edi           \n"
@@ -142,13 +168,19 @@ fastcall unsigned int do_IRQ(struct pt_regs *regs)
 			   "D" (desc->handle_irq)
 			: "memory", "cc"
 		);
-	} else
+	} else/* 否则,发生了中断嵌套,不用切换 */
 #endif
 //调用该IRQ的公共处理程序对中断进行处理
 		desc->handle_irq(irq, desc);
 //推出中断上下文
+		/**
+	 * 递减中断计数器并检查是否有可延迟函数
+	 */
 	irq_exit();
 	set_irq_regs(old_regs);
+	/**
+	 * 结束后,会返回ret_from_intr函数. 
+	 */
 	return 1;
 }
 

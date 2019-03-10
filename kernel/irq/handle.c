@@ -149,13 +149,25 @@ irqreturn_t handle_IRQ_event(unsigned int irq, struct irqaction *action)
 		ret = action->handler(irq, action->dev_id);
 		if (ret == IRQ_HANDLED)
 			status |= action->flags;
+		/**
+		 * 一般来说，handler处理了本次中断，就会返回1
+		 * 返回0和1是有用的，这样可以让内核判断中断是否被处理了。
+		 * 如果过多的中断没有被处理，就说明硬件有问题，产生了伪中断。
+		 */
 		retval |= ret;
 		action = action->next;
 	} while (action);
 //如果注册IRQ时设置了IRQF_SAMPLE_RANDOM标志，则需要调用add_interrupt_randomness,以中断间隔时间为随机数产生熵
+	/**
+	 * 如果中断是随机数的产生源，就添加一个随机因子。
+	 */
 	if (status & IRQF_SAMPLE_RANDOM)
 		add_interrupt_randomness(irq);
 	//最后关闭中断，函数返回
+	/**
+	 * 退出时，总是会关中断，这里不判断if (!(action->flags & SA_INTERRUPT))
+	 * 是因为：判断的汇编指令比直接执行cli费时，既然无论如何都是需要保证处于关中断状态，为什么多作那些判断呢。
+	 */
 	local_irq_disable();
 
 	return retval;

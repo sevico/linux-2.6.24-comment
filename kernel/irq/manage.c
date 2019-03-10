@@ -268,6 +268,11 @@ void compat_irq_chip_set_default_handler(struct irq_desc *desc)
  * Internal function to register an irqaction - typically used to
  * allocate special interrupts that are part of the architecture.
  */
+/**
+ * 将irqaction插入到链表中
+ * irq-IRQ号
+ * new-要插入的描述符
+ */
 int setup_irq(unsigned int irq, struct irqaction *new)
 {
 	struct irq_desc *desc = irq_desc + irq;
@@ -286,6 +291,9 @@ int setup_irq(unsigned int irq, struct irqaction *new)
 	 * so we have to be careful not to interfere with a
 	 * running system.
 	 */
+	/*
+	 * 如果中断可生成随机熵，则初始化随机熵机制
+	 */
 	if (new->flags & IRQF_SAMPLE_RANDOM) {
 		/*
 		 * This function might sleep, we want to call it first,
@@ -302,6 +310,9 @@ int setup_irq(unsigned int irq, struct irqaction *new)
 	 * The following block of code has to be executed atomically
 	 */
 	spin_lock_irqsave(&desc->lock, flags);
+	/**
+	 * 检查是否已经有设备在使用这个IRQ了。
+	 */
 	p = &desc->action;
 	/*
 	如果这个 irq 请求队列中已经存在某个设备的中断处理函数，那么需要检查
@@ -316,6 +327,9 @@ int setup_irq(unsigned int irq, struct irqaction *new)
 		 * fields must have IRQF_SHARED set and the bits which
 		 * set the trigger type must match.
 		 */
+		/**
+			 * IRQ线不允许共享，那就打开中断，并返回错误码。
+			 */
 		if (!((old->flags & new->flags) & IRQF_SHARED) ||
 		    ((old->flags ^ new->flags) & IRQF_TRIGGER_MASK)) {
 			old_name = old->name;
@@ -331,13 +345,22 @@ int setup_irq(unsigned int irq, struct irqaction *new)
 
 		/* add new interrupt at end of irq queue */
 		//新的中断处理函数被添加到队列尾部
+		/**
+		 * 在这里，我们已经知道设备上挂接了设备，那就循环，找到最后一个挂接的设备
+		 * 我们要插入的设备应该挂接到这个设备的后面。
+		 */
 		do {
 			p = &old->next;
 			old = *p;
 		} while (old);
+		/**
+		 * IRQ上有设备，并且运行到这里了，表示IRQ允许共享。
+		 */
 		shared = 1;
 	}
-
+	/**
+	 * 把action加到链表的末尾。
+	 */
 	*p = new;
 
 	/* Exclude IRQ from balancing */
@@ -369,13 +392,19 @@ int setup_irq(unsigned int irq, struct irqaction *new)
 				       "unknown");
 		} else
 			compat_irq_chip_set_default_handler(desc);
-
+			/*
+		 * 初始化相应IRQ描述符，
+		 * 清除IRQ_DISABLED， IRQ_AUTODETECT， IRQ_WAITING ，IRQ_INPROGRESS标志
+		 */
 		desc->status &= ~(IRQ_AUTODETECT | IRQ_WAITING |
 				  IRQ_INPROGRESS);
 
 		if (!(desc->status & IRQ_NOAUTOEN)) {
 			desc->depth = 0;
 			desc->status &= ~IRQ_DISABLED;
+			/**
+		 * startup 或enable是为了确保IRQ信号被激活。
+		 */
 			if (desc->chip->startup)
 				desc->chip->startup(irq);
 			else
@@ -388,7 +417,9 @@ int setup_irq(unsigned int irq, struct irqaction *new)
 	desc->irq_count = 0;
 	desc->irqs_unhandled = 0;
 	spin_unlock_irqrestore(&desc->lock, flags);
-
+	/**
+	 * 建立proc文件
+	 */
 	new->irq = irq;
 	register_irq_proc(irq);
 	new->dir = NULL;

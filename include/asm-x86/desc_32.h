@@ -142,7 +142,13 @@ static inline void native_load_tls(struct thread_struct *t, unsigned int cpu)
 	for (i = 0; i < GDT_ENTRY_TLS_ENTRIES; i++)
 		gdt[GDT_ENTRY_TLS_MIN + i] = t->tls_array[i];
 }
-
+/*
+ * @gate_addr:相应IDT项的地址.
+ * @type:设置IDT项的TYPE字段, 15表示系统门,14表示中断门.
+ * @dpl:IDT项对应的DPL值,
+ * @addr:中断处理程序的地址,
+ * @seg:IDT中对应项的段选择符
+ */
 static inline void _set_gate(int gate, unsigned int type, void *addr, unsigned short seg)
 {
 	__u32 a, b;
