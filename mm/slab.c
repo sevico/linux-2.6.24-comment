@@ -302,6 +302,7 @@ struct array_cache {
 	/**
 	 * 如果最近被使用过，则置为1
 	 */
+	//在从缓存移除一个对象时，将touched设置为1，而缓存收缩时，将touched设为0
 	unsigned int touched;
 	spinlock_t lock;
 	void *entry[];	/*
@@ -340,6 +341,7 @@ struct kmem_list3 {
 	 * 只包含空闲对象的slab描述符双向循环链表。
 	 */
 	struct list_head slabs_free;
+	//表示slabs_partial、slabs_free所有slab中空闲对象的总数
 	unsigned long free_objects;
 	/**
 	 * 整个slab高速缓存中空闲对象的上限。
@@ -359,10 +361,12 @@ struct kmem_list3 {
 	/**
 	 * slab分配器的页回收算法使用。
 	 */
+	//指定两次收缩的时间间隔
 	unsigned long next_reap;	/* updated without locking */
 	/**
 	 * slab分配器的页回收算法使用。
 	 */
+	//表示缓存是否活动，在缓存中获取一个对象时，将该值设置为1，在收缩时，将其设置为0，但内核只有在该值预先设置为0时，才会对其进行收缩
 	int free_touched;		/* updated without locking */
 };
 
@@ -455,19 +459,23 @@ struct kmem_cache {
 	/**
 	 * 要转移进本地高速缓存或从本地高速缓存中转移出的大批对象的数量。
 	 */
+	//指定了在per-CPU列表为空的情况下，从缓存的slab中获取对象的数目。它还表示在缓存增长时，分配的对象数目。
 	unsigned int batchcount;
 	/**
 	 * 本地高速缓存中空闲对象的最大数目。这个参数可调。
 	 */
+	//limit指定了per-CPU列表中保存的对象的最大数目。如果超出该值，内核会将batchcount个对象返回到slab
 	unsigned int limit;
 	unsigned int shared;
-
+	//指定了缓存中管理的对象的长度
 	unsigned int buffer_size;
+	//该值用于计算对象的索引
 	u32 reciprocal_buffer_size;
 /* 3) touched by every alloc & free from the backend */
 	/**
 	 * 描述高速缓存永久属性的一组标志。
 	 */
+	//当前只有一个标志。如果管理结构存储在slab外部，则置位CFLAGS_OFF_SLAB
 	unsigned int flags;		/* constant flags */
 	/**
 	 * 在一个单独slab中的对象的个数。高速缓存中的所有slab具有相同的大小。
@@ -497,6 +505,7 @@ struct kmem_cache {
 	/**
 	 * 指向包含slab描述符的普通slab高速缓存。如果使用了内部slab描述符，则这个字段为NULL。
 	 */
+	;//如果slab头部的管理数据存储在slab外部，则其指向分配所需内存的一般性缓存
 	struct kmem_cache *slabp_cache;
 	/**
 	 * 单个slab的大小。
@@ -2410,6 +2419,7 @@ kmem_cache_create (const char *name, size_t size, size_t align,
 	 * unaligned accesses for some archs when redzoning is used, and makes
 	 * sure any on-slab bufctl's are also correctly aligned.
 	 */
+	//计算填充长度（将对象长度向上舍入到处理器字长的倍数）
 	if (size & (BYTES_PER_WORD - 1)) {
 		size += (BYTES_PER_WORD - 1);
 		size &= ~(BYTES_PER_WORD - 1);
@@ -2517,6 +2527,7 @@ kmem_cache_create (const char *name, size_t size, size_t align,
 	 * (bootstrapping cannot cope with offslab caches so don't do
 	 * it too early on.)
 	 */
+	//确定是否将slab头存储在slab之上:如果对象的长度大于页帧的1/8，则将头部管理数据存储在slab之外
 	if ((size >= (PAGE_SIZE >> 3)) && !slab_early_init)
 		/*
 		 * Size is large, assume best to place the slab management obj
@@ -2525,7 +2536,7 @@ kmem_cache_create (const char *name, size_t size, size_t align,
 		flags |= CFLGS_OFF_SLAB;
 
 	size = ALIGN(size, align);
-
+	//寻找理想的slab长度（迭代计算）
 	left_over = calculate_slab_order(cachep, size, align, flags);
 
 	if (!cachep->num) {
@@ -2535,6 +2546,7 @@ kmem_cache_create (const char *name, size_t size, size_t align,
 		cachep = NULL;
 		goto oops;
 	}
+	//slab头的长度会进行舍入，已确保之后的各个数组项适当对齐
 	slab_size = ALIGN(cachep->num * sizeof(kmem_bufctl_t)
 			  + sizeof(struct slab), align);
 
@@ -2542,6 +2554,7 @@ kmem_cache_create (const char *name, size_t size, size_t align,
 	 * If the slab has been placed off-slab, and we have enough space then
 	 * move it on-slab. This is at the expense of any extra colouring.
 	 */
+	//如果slab上有足够空闲空间可存储slab头，则清除CFLGS_OFF_SLAB标志，将slab头，存储在空闲空间中
 	if (flags & CFLGS_OFF_SLAB && left_over >= slab_size) {
 		flags &= ~CFLGS_OFF_SLAB;
 		left_over -= slab_size;
@@ -2583,6 +2596,7 @@ kmem_cache_create (const char *name, size_t size, size_t align,
 	/*
          * 初始化每CPU本地高速缓存
          */
+	//构建per-CPU缓存与klist3
 	if (setup_cpu_cache(cachep)) {
 		__kmem_cache_destroy(cachep);
 		cachep = NULL;
@@ -3035,6 +3049,7 @@ static int cache_grow(struct kmem_cache *cachep,
 	 * 调用kmem_getpages从分区页框分配器获得一组页框来存放一个单独的slab
 	 */
 	if (!objp)
+		//利用伙伴系统分配slab使用的页帧。每个页都设置了PG_Slab标志，在一个slab用于满足短期或可回收分配时，则将标志__GFP_RECLAIMABLE传递到伙伴系统
 		objp = kmem_getpages(cachep, local_flags, nodeid);
 	if (!objp)
 		goto failed;
@@ -3043,6 +3058,7 @@ static int cache_grow(struct kmem_cache *cachep,
 	/**
 	 * 获得一个新的slab描述符
 	 */
+	//slabp头部初始化，用适当的值初始化slab数据结构的colouroff、s_mem和inuse成员
 	slabp = alloc_slabmgmt(cachep, objp, offset,
 			local_flags & ~GFP_CONSTRAINT_MASK, nodeid);
 	if (!slabp)
@@ -3056,10 +3072,12 @@ static int cache_grow(struct kmem_cache *cachep,
 	 * 注意：这个字段因为也会被页框回收算法使用，所以包含了这些隐含的约定，总会让人困惑，也许会带来一些意外的后果。
 	 * 总之，从这里可以看出linux不好、甚至是坏的一面。除了linus，还有多少人能够改linux??
 	 */
+	//建立slab页与slab和缓存的关联（复用page结构的lru字段）
 	slab_map_pages(cachep, slabp, objp);
 	/**
 	 * cache_init_objs将构造方法（如果有）应用到新的slab包含的所有对象上。
 	 */
+	//调用构造函数，初始化slab中的对象
 	cache_init_objs(cachep, slabp);
 
 	if (local_flags & __GFP_WAIT)
@@ -3800,17 +3818,19 @@ static void free_block(struct kmem_cache *cachep, void **objpp, int nr_objects,
 		void *objp = objpp[i];
 		struct slab *slabp;
 
-		slabp = virt_to_slab(objp);
+		slabp = virt_to_slab(objp);//根据page关系，找到slab
 		l3 = cachep->nodelists[node];
-		list_del(&slabp->list);
+		list_del(&slabp->list);//临时将slab从链表中删除
 		check_spinlock_acquired_node(cachep, node);
 		check_slabp(cachep, slabp);
+		//放入slab：：用于分配的第一个对象是刚刚删除的，而列表中的下一个对象则是此前的第一对象
 		slab_put_obj(cachep, slabp, objp, node);
 		STATS_DEC_ACTIVE(cachep);
 		l3->free_objects++;
 		check_slabp(cachep, slabp);
 
 		/* fixup slab chains */
+		//重新将slab加入链表中
 		if (slabp->inuse == 0) {
 			if (l3->free_objects > l3->free_limit) {
 				l3->free_objects -= cachep->num;
@@ -3820,6 +3840,7 @@ static void free_block(struct kmem_cache *cachep, void **objpp, int nr_objects,
 				 * a different cache, refer to comments before
 				 * alloc_slabmgmt.
 				 */
+				//缓存中空闲对象的数目超过预定义的限制cachep->free_limit,则销毁slab
 				slab_destroy(cachep, slabp);
 			} else {
 				list_add(&slabp->list, &l3->slabs_free);

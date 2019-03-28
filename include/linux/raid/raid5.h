@@ -159,13 +159,18 @@
  */
 
 struct stripe_head {
+	/* hash表的指针，连接所有stripe结构 */
 	struct hlist_node	hash;
 	struct list_head	lru;			/* inactive_list or handle_list */
+	/* RAID5的私有配置信息 */
 	struct raid5_private_data	*raid_conf;
 	sector_t		sector;			/* sector of this row */
+	/* 校验盘的索引号 */
 	int			pd_idx;			/* parity disk index */
+	/* 操作状态标记信息 */
 	unsigned long		state;			/* state flags */
 	atomic_t		count;			/* nr of active thread/requests */
+	/* 自旋锁 */
 	spinlock_t		lock;
 	int			bm_seq;	/* sequence number for bitmap flushes */
 	int			disks;			/* disks in stripe */
@@ -187,9 +192,15 @@ struct stripe_head {
 	struct r5dev {
 		struct bio	req;
 		struct bio_vec	vec;
-		struct page	*page;
+		struct page	*page;/* page缓存 */
+		/* toread: MD设备的读请求bio
+                   * towrite: MD设备的写请求bio，第一阶段写的bio指针
+                   * written: MD设备的血请求bio，已经开始被调度写，第二阶段写的bio指针
+                   */
 		struct bio	*toread, *read, *towrite, *written;
+		/* 这一页中的块 */
 		sector_t	sector;			/* sector of this page */
+		/* 操作标记 */
 		unsigned long	flags;
 	} dev[1]; /* allocated with extra space depending of RAID geometry */
 };
@@ -210,7 +221,7 @@ struct r6_state {
 };
 
 /* Flags */
-#define	R5_UPTODATE	0	/* page contains current data */
+#define		R5_UPTODATE	0	/* page contains current data */
 #define	R5_LOCKED	1	/* IO has been submitted on "req" */
 #define	R5_OVERWRITE	2	/* towrite covers whole page */
 /* and some that are internal to handle_stripe */
@@ -300,8 +311,11 @@ struct disk_info {
 };
 
 struct raid5_private_data {
+	/* 条带操作的hash链表 */
 	struct hlist_head	*stripe_hashtbl;
+	/* MD设备结构体指针 */
 	mddev_t			*mddev;
+	/* MD的扩展设备 */
 	struct disk_info	*spare;
 	int			chunk_size, level, algorithm;
 	int			max_degraded;

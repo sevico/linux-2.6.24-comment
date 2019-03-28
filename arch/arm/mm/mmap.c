@@ -21,6 +21,9 @@
  * We unconditionally provide this function for all cases, however
  * in the VIVT case, we optimise out the alignment rules.
  */
+/**
+ * 分配从低端地址向高端地址移动的线性区(如堆而不是栈)
+ */
 unsigned long
 arch_get_unmapped_area(struct file *filp, unsigned long addr,
 		unsigned long len, unsigned long pgoff, unsigned long flags)
@@ -56,22 +59,35 @@ arch_get_unmapped_area(struct file *filp, unsigned long addr,
 			return -EINVAL;
 		return addr;
 	}
-
+	/**
+	 * 当然了，只要是普通进程地址，就不能超过TASK_SIZE(一般就是3G)
+	 */
 	if (len > TASK_SIZE)
 		return -ENOMEM;
 
 	if (addr) {
+		/**
+		 * 如果地址不是0，就从addr处开始分配
+		 * 当然，需要将addr按4K取整
+		 */
 		if (do_align)
 			addr = COLOUR_ALIGN(addr, pgoff);
 		else
 			addr = PAGE_ALIGN(addr);
 
 		vma = find_vma(mm, addr);
+		/**
+		 * TASK_SIZE - len >= addr而不是addr + len <= TASK_SIZE
+		 */
 		if (TASK_SIZE - len >= addr &&
 		    (!vma || addr + len <= vma->vm_start))
-			return addr;
+			return addr;/* 没有被映射，这块区间可以使用。 */
 	}
 	if (len > mm->cached_hole_size) {
+		/**
+	 * 如果addr==0或者前面的搜索失败
+	 * 从free_area_cache开始搜索，这个值初始为用户态空间的1/3处（即1G处），它也是为正文段、数据段、BSS段保留的
+	 */
 	        start_addr = addr = mm->free_area_cache;
 	} else {
 	        start_addr = addr = TASK_UNMAPPED_BASE;
@@ -91,6 +107,10 @@ full_search:
 			 * Start a new search - just in case we missed
 			 * some holes.
 			 */
+			/**
+			 * 没有找到，从TASK_UNMAPPED_BASE(1G)处开始找
+			 * 第二次再从1G开始搜索的时候，start_addr = TASK_UNMAPPED_BASE，就会直接返回错误 -ENOMEM
+			 */
 			if (start_addr != TASK_UNMAPPED_BASE) {
 				start_addr = addr = TASK_UNMAPPED_BASE;
 				mm->cached_hole_size = 0;
@@ -101,6 +121,9 @@ full_search:
 		if (!vma || addr + len <= vma->vm_start) {
 			/*
 			 * Remember the place where we stopped the search:
+			 */
+			/**
+			 * 找到了，记下本次找到的地方，下次从addr+len处开始找
 			 */
 			mm->free_area_cache = addr + len;
 			return addr;

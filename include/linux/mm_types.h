@@ -147,18 +147,40 @@ struct page {
  * space that has a special rule for the page-fault handlers (ie a shared
  * library, the executable area etc).
  */
+/**
+ * 线性区描述符。
+ */
 struct vm_area_struct {
+	/**
+	 * 指向线性区所在的内存描述符。
+	 */
 	struct mm_struct * vm_mm;	/* The address space we belong to. */
+	/**
+	 * 线性区内的第一个线性地址。
+	 */
 	unsigned long vm_start;		/* Our start address within vm_mm. */
+	/**
+	 * 线性区之后的第一个线性地址。
+	 */
 	unsigned long vm_end;		/* The first byte after our end address
 					   within vm_mm. */
 
 	/* linked list of VM areas per task, sorted by address */
+	/**
+	 * 进程链表中的下一个线性区。
+	 */
 	struct vm_area_struct *vm_next;
-
+	/**
+	 * 线性区中页框的访问许可权。
+	 */
 	pgprot_t vm_page_prot;		/* Access permissions of this VMA. */
+	/**
+	 * 线性区的标志。
+	 */
 	unsigned long vm_flags;		/* Flags, listed below. */
-
+	/**
+	 * 用于红黑树的数据。
+	 */
 	struct rb_node vm_rb;
 
 	/*
@@ -167,13 +189,21 @@ struct vm_area_struct {
 	 * linkage to the list of like vmas hanging off its node, or
 	 * linkage of vma in the address_space->i_mmap_nonlinear list.
 	 */
+	/**
+	 * 链接到反映射所使用的数据结构。
+	 */
 	union {
+		/**
+		 * 如果在优先搜索树中，存在两个节点的基索引、堆索引、大小索引完全相同，那么这些相同的节点会被链接到一个链表，而vm_set就是这个链表的元素。
+		 */
 		struct {
 			struct list_head list;
 			void *parent;	/* aligns with prio_tree_node parent */
 			struct vm_area_struct *head;
 		} vm_set;
-
+		/**
+		 * 如果是文件映射，那么prio_tree_node用于将线性区插入到优先搜索树中。作为搜索树的一个节点。
+		 */
 		struct raw_prio_tree_node prio_tree_node;
 	} shared;
 
@@ -183,17 +213,40 @@ struct vm_area_struct {
 	 * can only be in the i_mmap tree.  An anonymous MAP_PRIVATE, stack
 	 * or brk vma (with NULL file) can only be in an anon_vma list.
 	 */
+	/**
+	 * 指向匿名线性区链表的指针(参见"映射页的反映射")。
+	 * 页框结构有一个anon_vma指针，指向该页的第一个线性区，随后的线性区通过此字段链接起来。
+	 * 通过此字段，可以将线性区链接到此链表中。
+	 */
 	struct list_head anon_vma_node;	/* Serialized by anon_vma->lock */
+	/**
+	 * 指向anon_vma数据结构的指针(参见"映射页的反映射")。此指针也存放在页结构的mapping字段中。
+	 */
 	struct anon_vma *anon_vma;	/* Serialized by page_table_lock */
 
 	/* Function pointers to deal with this struct. */
+	/**
+	 * 指向线性区的方法。
+	 */
 	struct vm_operations_struct * vm_ops;
 
 	/* Information about our backing store: */
+	/**
+	 * 在映射文件中的偏移量(以页为单位)。对匿名页，它等于0或vm_start/PAGE_SIZE
+	 */
 	unsigned long vm_pgoff;		/* Offset (within vm_file) in PAGE_SIZE
 					   units, *not* PAGE_CACHE_SIZE */
+	/**
+	 * 指向映射文件的文件对象(如果有的话)
+	 */
 	struct file * vm_file;		/* File we map to (can be NULL). */
+	/**
+	 * 指向内存区的私有数据。
+	 */
 	void * vm_private_data;		/* was vm_pte (shared mem) */
+	/**
+	 * 释放非线性文件内存映射中的一个线性地址区间时使用。
+	 */
 	unsigned long vm_truncate_count;/* truncate_count or restart_addr */
 
 #ifndef CONFIG_MMU
@@ -203,27 +256,69 @@ struct vm_area_struct {
 	struct mempolicy *vm_policy;	/* NUMA policy for the VMA */
 #endif
 };
-
+/**
+ * 内存描述符。task_struct的mm字段指向它。
+ * 它包含了进程地址空间有关的全部信息。
+ */
 struct mm_struct {
+	/**
+	 * 指向线性区对象的链表头。
+	 */
 	struct vm_area_struct * mmap;		/* list of VMAs */
+	/**
+	 * 指向线性区对象的红-黑树的根
+	 */
 	struct rb_root mm_rb;
+	/**
+	 * 指向最后一个引用的线性区对象。
+	 */
 	struct vm_area_struct * mmap_cache;	/* last find_vma result */
+	/**
+	 * 在进程地址空间中搜索有效线性地址区的方法。
+	 */
 	unsigned long (*get_unmapped_area) (struct file *filp,
 				unsigned long addr, unsigned long len,
 				unsigned long pgoff, unsigned long flags);
+	/**
+	 * 释放线性地址区间时调用的方法。
+	 */
 	void (*unmap_area) (struct mm_struct *mm, unsigned long addr);
+	/**
+	 * 标识第一个分配的匿名线性区或文件内存映射的线性地址。
+	 */
 	unsigned long mmap_base;		/* base of mmap area */
 	unsigned long task_size;		/* size of task vm space */
 	unsigned long cached_hole_size; 	/* if non-zero, the largest hole below free_area_cache */
+	/**
+	 * 内核从这个地址开始搜索进程地址空间中线性地址的空间区间。
+	 */
 	unsigned long free_area_cache;		/* first hole of size cached_hole_size or larger */
 	//进程页目录
 	pgd_t * pgd;
+	/**
+	 * 次使用计数器。存放共享mm_struct数据结构的轻量级进程的个数。
+	 */
 	atomic_t mm_users;			/* How many users with user space? */
+	/**
+	 * 主使用计数器。每当mm_count递减时，内核都要检查它是否变为0,如果是，就要解除这个内存描述符。
+	 */
 	atomic_t mm_count;			/* How many references to "struct mm_struct" (users count as 1) */
+	/**
+	 * 线性区的个数。
+	 */
 	int map_count;				/* number of VMAs */
+	/**
+	 * 内存描述符的读写信号量。
+	 * 由于描述符可能在几个轻量级进程间共享，通过这个信号量可以避免竞争条件。
+	 */
 	struct rw_semaphore mmap_sem;
+	/**
+	 * 线性区和页表的自旋锁。
+	 */
 	spinlock_t page_table_lock;		/* Protects page tables and some counters */
-
+	/**
+	 * 指向内存描述符链表中的相邻元素。
+	 */
 	struct list_head mmlist;		/* List of maybe swapped mm's.	These are globally strung
 						 * together off init_mm.mmlist, and are protected
 						 * by mmlist_lock
@@ -232,23 +327,68 @@ struct mm_struct {
 	/* Special counters, in some configurations protected by the
 	 * page_table_lock, in other configurations by being atomic.
 	 */
+	/**
+	 * 进程所拥有的最大页框数。
+	 */
 	mm_counter_t _file_rss;
+	/**
+	 * 进程线性区中的最大页数。
+	 */
 	mm_counter_t _anon_rss;
 
 	unsigned long hiwater_rss;	/* High-watermark of RSS usage */
 	unsigned long hiwater_vm;	/* High-water virtual memory usage */
 	//进程的执行文件镜像
+	/**
+	 * exec_vm-可执行内存映射的页数。
+	 * stack_vm-用户态堆栈中的页数。
+	 * reserved_vm-在保留区中的页数或在特殊线性区中的页数。
+	 * def_flags-线性区默认的访问标志。
+	 * nr_ptes-this进程的页表数。
+	 */
+	/**
+	 * rss-分配给进程的页框总数
+	 * anon_rss-分配给匿名内存映射的页框数。s
+	 * total_vm-进程地址空间的大小(页框数)
+	 * locked_vm-锁住而不能换出的页的个数。
+	 * shared_vm-共享文件内存映射中的页数。
+	 */
 	unsigned long total_vm, locked_vm, shared_vm, exec_vm;
 	unsigned long stack_vm, reserved_vm, def_flags, nr_ptes;
+	/**
+	 * start_code-可执行代码的起始地址。
+	 * end_code-可执行代码的最后地址。
+	 * start_data-已初始化数据的起始地址。
+	 * end_data--已初始化数据的结束地址。
+	 */
 	unsigned long start_code, end_code, start_data, end_data;
+	/**
+	 * start_brk-堆的超始地址。
+	 * brk-堆的当前最后地址。
+	 * start_stack-用户态堆栈的起始地址。
+	 */
 	unsigned long start_brk, brk, start_stack;
+	/**
+	 * arg_start-命令行参数的起始地址。
+	 * arg_end-命令行参数的结束地址。
+	 * env_start-环境变量的起始地址。
+	 * env_end-环境变量的结束地址。
+	 */
 	unsigned long arg_start, arg_end, env_start, env_end;
-
+	/**
+	 * 开始执行elf程序时使用。
+	 */
 	unsigned long saved_auxv[AT_VECTOR_SIZE]; /* for /proc/PID/auxv */
-
+	/**
+	 * 懒惰TLB交换的位掩码。
+	 */
 	cpumask_t cpu_vm_mask;
 
 	/* Architecture-specific MM context */
+	/**
+	 * 特殊体系结构信息的表。
+	 * 如80X86平台上的LDT地址。
+	 */
 	mm_context_t context;
 
 	/* Swap token stuff */
@@ -265,11 +405,25 @@ struct mm_struct {
 	unsigned long flags; /* Must use atomic bitops to access the bits */
 
 	/* coredumping support */
+	/**
+	 * 正在把进程地址空间的内容卸载到转储文件中的轻量级进程的数量。
+	 */
 	int core_waiters;
+	/**
+	 * core_startup_done-指向创建内存转储文件时的补充原语。
+	 * core_done-创建内存转储文件时使用的补充原语。
+	 */
 	struct completion *core_startup_done, core_done;
 
 	/* aio bits */
+	/**
+	 * 用于保护异步IO上下文链表的锁。
+	 */
 	rwlock_t		ioctx_list_lock;
+	/**
+	 * 异步IO上下文链表。
+	 * 一个应用可以创建多个AIO环境，一个给定进程的所有的kioctx描述符存放在一个单向链表中，该链表位于ioctx_list字段
+	 */
 	struct kioctx		*ioctx_list;
 };
 

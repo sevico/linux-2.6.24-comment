@@ -224,8 +224,14 @@ static inline pmd_t *vmalloc_sync_one(pgd_t *pgd, unsigned long address)
 	pmd_t *pmd, *pmd_k;
 
 	pgd += index;
+	/**
+		 * 把主内核页全局目录的线性地址赋给pgd_k
+		 */
 	pgd_k = init_mm.pgd + index;
-
+/**
+		 * pgd_k对应的主内核页全局目录项为空。说明不是非连续内存区产生的错误。
+		 * 因为非连续内存区产生的缺页仅仅是没有页表项，而不会缺少目录项。
+		 */
 	if (!pgd_present(*pgd_k))
 		return NULL;
 
@@ -234,17 +240,21 @@ static inline pmd_t *vmalloc_sync_one(pgd_t *pgd, unsigned long address)
 	 * and redundant with the set_pmd() on non-PAE. As would
 	 * set_pud.
 	 */
-
+	/**
+		 * 检查了全局目录项，还必须检查主内核页上级目录项和中间目录项。
+		 * 如果它们中有一个为空，也转到no_context
+		 */
 	pud = pud_offset(pgd, address);
 	pud_k = pud_offset(pgd_k, address);
 	if (!pud_present(*pud_k))
 		return NULL;
-
+	/*直接用，没有分配，因为共享了内核主页表的PMD*/
 	pmd = pmd_offset(pud, address);
 	pmd_k = pmd_offset(pud_k, address);
 	if (!pmd_present(*pmd_k))
 		return NULL;
 	if (!pmd_present(*pmd)) {
+		/*这里共享了内核主页表的PT，因为PMD,PUD都是共享的，所以vmalloc只可能是因为pgd中的present没有置位引发的*/
 		set_pmd(pmd, *pmd_k);
 		arch_flush_lazy_mmu_mode();
 	} else
@@ -269,6 +279,10 @@ static inline int vmalloc_fault(unsigned long address)
 	 * Do _not_ use "current" here. We might be inside
 	 * an interrupt in the middle of a task switch..
 	 */
+	/**
+		 * 把cr3中当前进程页全局目录的物理地址赋给局部变量pgd_paddr。
+		 * 注：内核不使用current->mm->pgd导出当前进程的页全局目录地址。因为这种缺页可能在任何时刻发生，甚至在进程切换期间发生。
+		 */
 	pgd_paddr = read_cr3();
 	pmd_k = vmalloc_sync_one(__va(pgd_paddr), address);
 	if (!pmd_k)
@@ -307,6 +321,14 @@ int show_unhandled_signals = 1;
 // 处理页面错误异常(缺页中断)
 // struct pt_regs *regs 出现异常时 CPU 各个寄存器值的副本
 // error_code           指明映射失败原因
+/**
+ * 缺页中断服务程序。
+ * regs-发生异常时寄存器的值
+ * error_code-当异常发生时，控制单元压入栈中的错误代码。
+ *			  当第0位被清0时，则异常是由一个不存在的页所引起的。否则是由无效的访问权限引起的。
+ *			  如果第1位被清0，则异常由读访问或者执行访问所引起，如果被设置，则异常由写访问引起。
+ *			  如果第2位被清0，则异常发生在内核态，否则异常发生在用户态。
+ */
 fastcall void __kprobes do_page_fault(struct pt_regs *regs,
 				      unsigned long error_code)
 {
@@ -328,6 +350,9 @@ fastcall void __kprobes do_page_fault(struct pt_regs *regs,
 
 	/* get the address */
 	/* 获取出错地址 */
+	/**
+	 * 读取引起异常的线性地址。CPU控制单元把这个值存放在cr2控制寄存器中。
+	 */
 	address = read_cr2();
 	//得到当前进程的描述符和内存地址描述
 	tsk = current;
@@ -347,7 +372,19 @@ fastcall void __kprobes do_page_fault(struct pt_regs *regs,
 	 * (error_code & 4) == 0, and that the fault was not a
 	 * protection error (error_code & 9) == 0.
 	 */
+	/**
+	 * 根据异常地址，判断是访问内核态地址还是用户态地址发生了异常。
+	 * 这并不代表异常发生在用户态还是内核态。
+	*/
 	if (unlikely(address >= TASK_SIZE)) {
+		/*
+         * !(第0，3位 = 1，由无效的访问权限引起的； 第2位==1，异常发生在用户态。) ==> 内核态访问了一个不存在的页框
+         */
+		/**
+			 * 内核态访问了一个不存在的页框，这可能是由于内核态访问非连续内存区而引起的。
+			 * 注:vmalloc可能打乱了内核页表，而进程切换后，并没有随着修改这些页表项。这可能会引起异常，而这种异常其实不是程序逻辑错误。
+		*/
+		//发生在核心态，且异常不是由保护错误触发时，内核使用vmalloc_fault同步页表（从init的页表复制相关的项到当前页表
 		if (!(error_code & 0x0000000d) && vmalloc_fault(address) >= 0)
 			return;
 		if (notify_page_fault(regs))
@@ -356,6 +393,7 @@ fastcall void __kprobes do_page_fault(struct pt_regs *regs,
 		 * Don't take the mm semaphore here. If we fixup a prefetch
 		 * fault we could otherwise deadlock.
 		 */
+		//如果异常是在中断期间或内核线程过程中触发，也没有自身的上下文因而也没有独立的mm_struct实列，则跳转
 		goto bad_area_nosemaphore;
 	}
 
@@ -364,6 +402,10 @@ fastcall void __kprobes do_page_fault(struct pt_regs *regs,
 
 	/* It's safe to allow irq's after cr2 has been saved and the vmalloc
 	   fault has been handled. */
+	/**
+	 * 只在保存了cr2就可以打开中断了。
+	 * 如果中断发生前是允许中断的，或者运行在虚拟8086模式，就打开中断。
+	 */
 	if (regs->eflags & (X86_EFLAGS_IF|VM_MASK))
 		local_irq_enable();
 	// 获取 mm_struct
@@ -374,8 +416,15 @@ fastcall void __kprobes do_page_fault(struct pt_regs *regs,
 	 * atomic region then we must not take the fault..
 	 * 如果我们处于中断或没有用户上下文环境的情况下, 我们绝不能处理这种错误
 	 */
-	// in_interrupt() 返回非零, 说明映射失败发生在某个中断/异常处理程序中, 与当前出现异常进程无关.
+	// in_atomic() 返回非零, 说明映射失败发生在某个中断/异常处理程序中, 与当前出现异常进程无关.
 	//mm 为空, 说明当前出现异常进程的映射还没有建立, 与该进程无关. 说明映射发生在某个 in_interrupt() 程序无法检测的某个中断/异常处理程序中.
+	/**
+	 * 内核是否在执行一些关键例程，或者是内核线程出错了。
+	 * in_atomic表示内核现在禁止抢占，一般是中断处理程序、可延迟函数、临界区或内核线程中。
+	 * 一般来说，这些程序不会去访问用户空间地址。因为访问这些地址总是可能造成导致阻塞。
+	 * 而这些地方是不允许阻塞的。
+	 * 总之，问题有点严重。
+	 */
 	if (in_atomic() || !mm)
 		goto bad_area_nosemaphore;
 
@@ -395,27 +444,74 @@ fastcall void __kprobes do_page_fault(struct pt_regs *regs,
 	 * thus avoiding the deadlock.
 	 */
 	// 信号量, 锁住 mm_struct 及其下属的 vm_area_struct, 防止其他进程打扰.
+	/**
+	 * 缺页没有发生在中断处理程序、可延迟函数、临界区、内核线程中
+	 * 那么，就需要检查进程所拥有的线性区，以决定引起缺页的线性地址是否包含在进程的地址空间中
+	 * 为此，必须获得进程的mmap_sem读写信号量。
+	 */
+
+	/**
+	 * 既然不是内核BUG，也不是硬件故障，那么缺页发生时，当前进程就还没有为写而获得信号量mmap_sem.
+	 * 但是为了稳妥起见，还是调用down_read_trylock确保mmap_sem没有被其他地方占用。
+	 */
 	if (!down_read_trylock(&mm->mmap_sem)) {
+		/**
+		 * 一般不会运行到这里来。
+		 * 运行到这里表示:信号被关闭了。
+		 */
 		if ((error_code & 4) == 0 &&
-		    !search_exception_tables(regs->eip))
+		    !search_exception_tables(regs->eip))/* 第2位被清0，则异常发生在内核态; 且在异常处理表中又没有对应的处理函数。*/
+		    /**
+		     * 内核态异常，在异常处理表中又没有对应的处理函数。
+		     * 转到bad_area_nosemaphore，它会再检查一下：是否是使用作为系统调用参数被传递给内核的线性地址。
+		     * 请回想一下,access_ok只是作了简单的检查，并不确保线性地址空间真的存在（只要是用户态地址就行了）
+		     * 也就是说：用户态程序在调用系统调用的时候，可能传递了一个非法的用户态地址给内核。
+		     * 而内核试图读写这个地址的时候，就出错了
+		     * 的确，这里就会处理这个情况。
+		     */
 			goto bad_area_nosemaphore;
+			/**
+		 * 否则，不是内核异常或者严重的硬件故障。并且信号量被其他线程占用了，等待其他线程释放信号量后继续。
+		 */
 		down_read(&mm->mmap_sem);
 	}
 	// 查找当前出现异常进程区间中第一个结束地址大于出错地址的区间
+	/**
+	 * 运行到此，就已经获得了mmap_sem信号量。
+	 * 可以放心的操作mm了。
+	 * 现在开始搜索出错地址所在的线性区。
+	 */
 	vma = find_vma(mm, address);
 	// 用户程序越界访问系统空间	
+	/**
+	 * 如果vma为空，说明在出错地址后面没有线性区了，说明错误的地址肯定是无效的。
+	 */ 
 	if (!vma)
 		goto bad_area;
 	// vma->vm_struct <= address 说明 address 在这个区间中
+	/**
+	 * vma在address后面，并且它的起始地址在address前面，说明线性区包含了这个地址。
+	 * 谢天谢地，这很可能不是真的错误，可能是COW机制起作用了，也可能是需要调页了。
+	 */
 	if (vma->vm_start <= address)
 		goto good_area;
 	// 虚拟地址处于用户空间, 但是不在任何一个 vm_area_struct 之中
 	// VM_GROWSDOWN 表示当前 vma 处于栈区
 	// 紧邻其上的不是一个栈区区间, 当前的空间没有建立映射或映射已经被销毁
+	/**
+	 * 运行到此，说明地址并不在线性区中。
+	 * 但是我们还要再判断一下，有可能是push指令引起的异常。和vma==NULL还不太一样。
+	 * 直接转到bad_area是不正确的。
+	 */
 	if (!(vma->vm_flags & VM_GROWSDOWN))
 		goto bad_area;
 	// 内存映射的空洞紧邻其上的是一个栈区区间
 	// 处于用户模式
+	/**
+	 * 运行到此，说明address地址后面的vma有VM_GROWSDOWN标志，表示它是一个堆栈区
+	 * 请注意，如果是内核态访问用户态的堆栈空间，就应该直接扩展堆栈，而不判断if (address + 32 < regs->esp)
+	 * 注意，如果是内核态在访问用户态堆栈空间，没有32的距离限制，都应该expand_stack
+	 */
 	if (error_code & 4) {
 		/*
 		 * Accessing the stack below %esp is always a bug.
@@ -433,6 +529,11 @@ fastcall void __kprobes do_page_fault(struct pt_regs *regs,
 	}
 	// 本次页面出错异常是堆栈扩展造成的
 	// 扩展堆栈: expand_stack 建立页面映射并扩展栈区
+	/**
+	 * 线程堆栈空间不足，就扩展一下，一般会成功的，不会运行到bad_area.
+	 * 注意:如果异常发生在内核态，说明内核正在访问用户态的栈，就直接扩展用户栈。
+	 * 注意这里只是扩展了vma，但是并没有分配新的也
+	 */
 	if (expand_stack(vma, address))
 		goto bad_area;
 /*
@@ -440,29 +541,59 @@ fastcall void __kprobes do_page_fault(struct pt_regs *regs,
  * we can handle it..
  * 对于这次内存访问, 我们有一个好的 vm_area_struct, 因此我们可以处理它..
  */
+	/**
+ * 处理地址空间内的错误地址。其实可能并不是错误地址。
+ */
 good_area:
 	si_code = SEGV_ACCERR;
 	write = 0;
-	switch (error_code & 3) {
+	switch (error_code & 3) {/* 错误是由写访问引起的 */ /*★*/
 	/* 出错指令为读操作, 物理页面在内存中 */
 	default: /* 3: write, present */
 			 /* fall through */
 	/* 出错指令为写操作, 物理页面不在内存中 */
-	case 2:  /* write, not present */
+	/**
+		 * 写访问出错。
+		 */
+	case 2:  /* write, not present *//*异常由由一个不存在的页, 写访问引起。*/
 		// 检查当前 vma 是否可写
+			/**
+			 * 但是线性区不允许写，难道是想写只读数据区或者代码段？？？
+			 * 注意，当errcode==3也会到这里
+			 */
 		if (!(vma->vm_flags & VM_WRITE))
 			goto bad_area;
+		/**
+			 * 线性区可写，但是此时发生了写访问错误。
+			 * 说明可以启动写时复制或请求调页了。将write++其实就是将它置1
+			 */
 		write++;
 		break;
 	/* 出错指令为读操作, 物理页面在内存中 */
-	case 1: /* read, present */
+		/**
+		 * 没有读权限？？
+		 * 可能是由于进程试图访问一个有特权的页框。
+		 */
+	case 1: /* read, present *//*异常由无效的访问权限, 读访问或者执行访问所引起*/
 		goto bad_area;
 	/* 出错指令为读操作, 物理页面不在内存中 */
-	case 0: /* read, not present */
+		/**
+		 * 要读的页不存在，检查是否真的可读或者可执行
+		 */
+	case 0: /* read, not present *//*异常由一个不存在的页, 读访问或者执行访问所引起*/
+		/**
+			 * 要读的页不存在，也不允许读和执行，那也是一种错误
+			 */
 		if (!(vma->vm_flags & (VM_READ | VM_EXEC | VM_WRITE)))
 			goto bad_area;
+		/**
+			 * 运行到这里，说明要读的页不存在，但是线性区允许读，说明是需要调页了。
+			 */
 	}
-
+	/**
+ * 幸免于难，可能不是真正的错误。
+ * 呵呵，找块毛巾擦擦汗。
+ */
  survive:
 	 /*
 	 * If for any reason at all we couldn't handle the fault,
@@ -471,18 +602,36 @@ good_area:
 	 * 如果因为任何原因我们无法处理错误, 请确保我们优雅的退出, 而不是无休止的重复处理错误
 	 */
 	 //真正处理出错的内存页，创建页表
+ /**
+	 * 线性区的访问权限与引起异常的类型相匹配，调用handle_mm_fault分配一个新页框。
+	 * handle_mm_fault中会处理请求调页和写时复制两种机制。
+	 */
 	 fault = handle_mm_fault(mm, vma, address, write);
+	 //返回值VM_FAULT_MINOR:数据已经在内存中,VM_FAULT_MAJOR:数据需要从块设备读取
 	 if (unlikely(fault & VM_FAULT_ERROR))
 	 {
+	 	/**
+		 * VM_FAULT_OOM表示没有足够的内存
+		 * 如果不是init进程，就杀死它，否则就调度其他进程运行，等待内存被释放出来。
+		 */
 		 if (fault & VM_FAULT_OOM)
 			 goto out_of_memory;
+			/**
+		 * VM_FAULT_SIGBUS表示其他错误。
+		 * do_sigbus会向进程发送SIGBUS信号。
+		 *//*不正常*/
 		 else if (fault & VM_FAULT_SIGBUS)
 			 goto do_sigbus;
 		 BUG();
 	}
+	/**
+		 * VM_FAULT_MAJOR表示阻塞了当前进程，即主缺页。
+		 * 很可能是由于当用磁盘上的数据填充所分配的页框时花费了时间。
+		 */
 	if (fault & VM_FAULT_MAJOR)
 		tsk->maj_flt++;
 	else
+		//没有阻塞当前进程，即次缺页/*正常*/
 		tsk->min_flt++;
 
 	/*
@@ -503,13 +652,26 @@ good_area:
  * 尝试访问的内存不在内存映射(vm_area_struct)之中
  * 首先检查当前出现异常进程属于用户还是内核, 然后修复..
  */
+	/**
+ * 处理地址空间以外的错误地址。
+ * 当要访问的地址不在进程的地址空间内时，执行到此。
+ */
  bad_area:
 	 // 对于 mm_struct 及其下属 vm_area_struct 的使用完成, 信号量解锁
 	 up_read(&mm->mmap_sem);
-
+/**
+ * 用户态程序访问了内核态地址，或者访问了没有权限的页框。
+ * 或者是内核态线程出错了，也或者是当前有很紧要的操作
+ * 总之，运行到这里可不是什么好事。
+ */
  bad_area_nosemaphore:
 	 /* User mode accesses just cause a SIGSEGV */
 	 // 用户模式
+ /**
+	 * 第2位 == 1, 异常发生在用户态。
+	 * 发生在用户态的错误地址。
+	 * 就发生一个SIGSEGV信号给current进程，并结束函数。
+	 */
 	 if (error_code & 4)
 	 {
 		 /*
@@ -539,10 +701,14 @@ good_area:
 		 tsk->thread.error_code = error_code | (address >= TASK_SIZE);
 		 tsk->thread.trap_no = 14;
 		 // 向当前出现异常进程发送一个强制 SIGSEGV 信号, 产生 Segment Fault
+		 /**
+		 * force_sig_info确信进程不忽略或阻塞SIGSEGV信号
+		 * SEGV_MAPERR或SEGV_ACCERR已经被设置在info.si_code中。
+		 */
 		 force_sig_info_fault(SIGSEGV, si_code, address, tsk);
 		 return;
 	 }
-
+	 /*从这里往下，异常发生在内核态*/
 #ifdef CONFIG_X86_F00F_BUG
 	/*
 	 * Pentium F0 0F C7 C8 bug workaround.
@@ -558,9 +724,16 @@ good_area:
 		}
 	}
 #endif
-
+	/**
+	 * 异常发生在内核态。
+	 */
 no_context:
 	/* Are we prepared to handle this kernel fault?  */
+/**
+	 * 异常的引起是因为把某个线性地址作为系统调用的参数传递给内核。
+	 * 调用fixup_exception判断这种情况，如果是这样的话，那谢天谢地，还有修复的可能。
+	 * 典型的：fixup_exception可能会向进程发送SIGSEGV信号或者用一个适当的出错码终止系统调用处理程序。
+	 */
 	if (fixup_exception(regs))
 		return;
 
@@ -592,6 +765,10 @@ no_context:
 					"(uid: %d)\n", current->uid);
 		}
 #endif
+		/**
+	 * 但愿程序不要运行到这里来，著名的oops出现了^-^
+	 * 不过oops算什么呢，真正的内核高手在等着解决这些错误呢
+	 */
 		if (address < PAGE_SIZE)
 			printk(KERN_ALERT "BUG: unable to handle kernel NULL "
 					"pointer dereference");
@@ -638,7 +815,7 @@ no_context:
 	tsk->thread.cr2 = address;
 	tsk->thread.trap_no = 14;
 	tsk->thread.error_code = error_code;
-	die("Oops", regs, error_code);
+	die("Oops", regs, error_code);/*★*/
 	bust_spinlocks(0);
 	do_exit(SIGKILL);
 
@@ -646,9 +823,12 @@ no_context:
  * We ran out of memory, or some other thing happened to us that made
  * us unable to handle the page fault gracefully.
  */
+	/**
+ * 缺页了，但是没有内存了，就杀死进程（init除外）
+ */
 out_of_memory:
 	up_read(&mm->mmap_sem);
-	if (is_global_init(tsk)) {
+	if (is_global_init(tsk)) {/*如果是init, 则调度其他进行*/
 		yield();
 		down_read(&mm->mmap_sem);
 		goto survive;
@@ -657,7 +837,9 @@ out_of_memory:
 	if (error_code & 4)
 		do_group_exit(SIGKILL);
 	goto no_context;
-
+/**
+ * 缺页了，但是分配页时出现了错误，就向进程发送SIGBUS信号。
+ */
 do_sigbus:
 	up_read(&mm->mmap_sem);
 

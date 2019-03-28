@@ -217,13 +217,14 @@ FASTCALL(__alloc_pages(gfp_t, unsigned int, struct zonelist *));
 static inline struct page *alloc_pages_node(int nid, gfp_t gfp_mask,
 						unsigned int order)
 {
+	//避免分配过大内存块
 	if (unlikely(order >= MAX_ORDER))
 		return NULL;
 
 	/* Unknown node is current node */
-	if (nid < 0)
+	if (nid < 0)//如果指定的结点ID不存在，则选择当前CPU的结点ID
 		nid = numa_node_id();
-
+	//gfp_zone(gfp_mas)用于选择内存分配的内存域
 	return __alloc_pages(gfp_mask, order,
 		NODE_DATA(nid)->node_zonelists + gfp_zone(gfp_mask));
 }

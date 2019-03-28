@@ -159,10 +159,22 @@ struct vm_fault {
  * unmapping it (needed to keep files on disk up-to-date etc), pointer
  * to the functions called when a no-page or a wp-page exception occurs. 
  */
+/**
+ * 线性区的方法。
+ */
 struct vm_operations_struct {
+	/**
+	 * 当把线性区增加到进程所拥有的线性区集合时调用。
+	 */
 	void (*open)(struct vm_area_struct * area);
+	/**
+	 * 当从进程所拥有的线性区集合删除线性区时调用。
+	 */
 	void (*close)(struct vm_area_struct * area);
 	int (*fault)(struct vm_area_struct *vma, struct vm_fault *vmf);
+	/**
+	 * 当进程试图访问RAM中不存在的一个页，但该页的线性地址属于线性区时，由缺页异常处理程序调用。
+	 */
 	struct page *(*nopage)(struct vm_area_struct *area,
 			unsigned long address, int *type);
 	unsigned long (*nopfn)(struct vm_area_struct *area,
@@ -1005,14 +1017,28 @@ extern unsigned long mmap_region(struct file *file, unsigned long addr,
 	unsigned long len, unsigned long flags,
 	unsigned int vm_flags, unsigned long pgoff,
 	int accountable);
-
+/**
+ * 为当前进程创建并初始化一个新的线性区。
+ * 分配成功后，可以把这个新的线性区与进程已有的其他线性区进行合并。
+ * file,offset-如果新的线性区将把一个文件映射到内存，则使用文件描述符指针file和文件偏移量offset.当不需要内存映射时，file和offset都会为空
+ * addr-这个线性地址指定从何处开始查找一个空闲的区间。
+ * len-线性地址区间的长度。
+ * prot-这个参数指定这个线性区所包含页的访问权限。可能的标志有PROT_READ,PROT_WRITE,PROT_EXEC和PROT_NONE.前三个标志与VM_READ,VM_WRITE,WM_EXEC一样。PROT_NONE表示没有以上权限中的任意一个
+ * flag-这个参数指定线性区的其他标志。MAP_GROWSDOWN,MAP_LOCKED,MAP_DENYWRITE,MAP_EXECURABLE
+ */
 static inline unsigned long do_mmap(struct file *file, unsigned long addr,
 	unsigned long len, unsigned long prot,
 	unsigned long flag, unsigned long offset)
 {
 	unsigned long ret = -EINVAL;
+	/**
+	 * 首先检查是否溢出。
+	 */
 	if ((offset + PAGE_ALIGN(len)) < offset)
 		goto out;
+	/**
+	 * 检查是否对齐页。
+	 */
 	if (!(offset & ~PAGE_MASK))
 		ret = do_mmap_pgoff(file, addr, len, prot, flag, offset >> PAGE_SHIFT);
 out:
@@ -1074,10 +1100,19 @@ extern struct vm_area_struct * find_vma_prev(struct mm_struct * mm, unsigned lon
 
 /* Look up the first VMA which intersects the interval start_addr..end_addr-1,
    NULL if none.  Assume start_addr < end_addr. */
+/**
+ * find_vma_intersection函数查找与给定的线性地址区间相重叠的第一个线性区。完全交叉才叫intersection
+ * mm-进程的内存描述符。
+ * start_addr-要查找的区间的起始地址。
+ * end_addr-要查找的区间的结束地址。
+ */
 static inline struct vm_area_struct * find_vma_intersection(struct mm_struct * mm, unsigned long start_addr, unsigned long end_addr)
 {
 	struct vm_area_struct * vma = find_vma(mm,start_addr);
-
+	/**
+	 * 如果没有这样的线性区存在就返回NULL。
+	 * 如果所找到的线性区是从地址区间的末尾开始的，也返回0.
+	 */
 	if (vma && end_addr <= vma->vm_start)
 		vma = NULL;
 	return vma;

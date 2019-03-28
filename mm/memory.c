@@ -1552,6 +1552,15 @@ static inline void cow_user_page(struct page *dst, struct page *src, unsigned lo
  * We enter with non-exclusive mmap_sem (to exclude vma changes,
  * but allow concurrent faults), with pte both mapped and locked.
  * We return with mmap_sem still held, but pte unmapped and unlocked.
+ 首先调用vm_normal_page，找到struct page实例。
+
+alloc_page_vma分配一个新页。
+
+cow_user_page接下来将异常页的数据复制到新页。
+
+后使用page_remove_rmap，删除到原来的只读页的逆向映射。
+
+page_add_anon_rmap将新页插入到逆向映射数据结构。
  */
 static int do_wp_page(struct mm_struct *mm, struct vm_area_struct *vma,
 		unsigned long address, pte_t *page_table, pmd_t *pmd,
@@ -2160,6 +2169,9 @@ out_nomap:
  * but allow concurrent faults), and pte mapped but not yet locked.
  * We return with mmap_sem still held, but pte unmapped and unlocked.
  */
+/**
+ * 获得一个新的页框。
+ */
 static int do_anonymous_page(struct mm_struct *mm, struct vm_area_struct *vma,
 		unsigned long address, pte_t *page_table, pmd_t *pmd,
 		int write_access)
@@ -2235,7 +2247,7 @@ static int __do_fault(struct mm_struct *mm, struct vm_area_struct *vma,
 	vmf.page = NULL;
 
 	BUG_ON(vma->vm_flags & VM_PFNMAP);
-
+	//将所需数据读入到发生异常的页（内核使用address_space对象中的信息，从后备存储器将数据读取到物理内存页）
 	if (likely(vma->vm_ops->fault)) {
 		ret = vma->vm_ops->fault(vma, &vmf);
 		if (unlikely(ret & (VM_FAULT_ERROR | VM_FAULT_NOPAGE)))
@@ -2265,7 +2277,7 @@ static int __do_fault(struct mm_struct *mm, struct vm_area_struct *vma,
 	 */
 	page = vmf.page;
 	if (flags & FAULT_FLAG_WRITE) {
-		if (!(vma->vm_flags & VM_SHARED)) {
+		if (!(vma->vm_flags & VM_SHARED)) {//私有映射
 			anon = 1;
 			if (unlikely(anon_vma_prepare(vma))) {
 				ret = VM_FAULT_OOM;
@@ -2278,7 +2290,7 @@ static int __do_fault(struct mm_struct *mm, struct vm_area_struct *vma,
 				goto out;
 			}
 			copy_user_highpage(page, vmf.page, address, vma);
-		} else {
+		} else {//共享映射
 			/*
 			 * If the page will be shareable, see if the backing
 			 * address space wants to know that the page is about
@@ -2332,10 +2344,10 @@ static int __do_fault(struct mm_struct *mm, struct vm_area_struct *vma,
 		if (anon) {
                         inc_mm_counter(mm, anon_rss);
                         lru_cache_add_active(page);
-                        page_add_new_anon_rmap(page, vma, address);
+                        page_add_new_anon_rmap(page, vma, address);//建立匿名页反向映射
 		} else {
 			inc_mm_counter(mm, file_rss);
-			page_add_file_rmap(page);
+			page_add_file_rmap(page);//建立映射页反向映射
 			if (flags & FAULT_FLAG_WRITE) {
 				dirty_page = page;
 				get_page(dirty_page);
@@ -2398,6 +2410,12 @@ static int do_linear_fault(struct mm_struct *mm, struct vm_area_struct *vma,
  *
  * Mark this `noinline' to prevent it from bloating the main pagefault code.
  */
+/**
+ * 当被访问的页不在主存中时，如果页从没有访问过，或者映射了磁盘文件
+ * 那么pte_none宏会返回1，handle_pte_fault函数会调用本函数装入所缺的页。
+ * 也就是还从来没有使用过这个页面
+ * 执行对请求调页的所有类型都通用的操作。
+ */
 static noinline int do_no_pfn(struct mm_struct *mm, struct vm_area_struct *vma,
 		     unsigned long address, pte_t *page_table, pmd_t *pmd,
 		     int write_access)
@@ -2409,7 +2427,10 @@ static noinline int do_no_pfn(struct mm_struct *mm, struct vm_area_struct *vma,
 	pte_unmap(page_table);
 	BUG_ON(!(vma->vm_flags & VM_PFNMAP));
 	BUG_ON(is_cow_mapping(vma->vm_flags));
-
+	/**
+	 * 线性区定义了nopage方法，则回调此方法以返回所请求页的页框的地址。
+	 * 调用filemap_nopage
+	 */
 	pfn = vma->vm_ops->nopfn(vma, address & PAGE_MASK);
 	if (unlikely(pfn == NOPFN_OOM))
 		return VM_FAULT_OOM;
@@ -2477,7 +2498,7 @@ static int do_nonlinear_fault(struct mm_struct *mm, struct vm_area_struct *vma,
  * but allow concurrent faults), and pte mapped but not yet locked.
  * We return with mmap_sem still held, but pte unmapped and unlocked.
  */
-static inline int handle_pte_fault(struct mm_struct *mm,
+static inline int 	handle_pte_fault(struct mm_struct *mm,
 		struct vm_area_struct *vma, unsigned long address,
 		pte_t *pte, pmd_t *pmd, int write_access)
 {
@@ -2487,8 +2508,8 @@ static inline int handle_pte_fault(struct mm_struct *mm,
 	entry = *pte;
 	// 判断 PTE 的 P 标志位和第 8 位是否设置(查看物理页面是否在内存中)
 	if (!pte_present(entry)) {
-		if (pte_none(entry)) {
-			if (vma->vm_ops) {
+		if (pte_none(entry)) {//没有对应的页表项
+			if (vma->vm_ops) {//基于文件的映射，按需调页
 				if (vma->vm_ops->fault || vma->vm_ops->nopage)
 					return do_linear_fault(mm, vma, address,
 						pte, pmd, write_access, entry);
@@ -2497,11 +2518,11 @@ static inline int handle_pte_fault(struct mm_struct *mm,
 							 pmd, write_access);
 			}
 			return do_anonymous_page(mm, vma, address,
-						 pte, pmd, write_access);
+						 pte, pmd, write_access);//匿名页：按需分配
 		}
 		if (pte_file(entry))
 			return do_nonlinear_fault(mm, vma, address,
-					pte, pmd, write_access, entry);
+					pte, pmd, write_access, entry);//换入非线性映射
 		return do_swap_page(mm, vma, address,
 					pte, pmd, write_access, entry);
 	}
@@ -2510,7 +2531,7 @@ static inline int handle_pte_fault(struct mm_struct *mm,
 	spin_lock(ptl);
 	if (unlikely(!pte_same(*pte, entry)))
 		goto unlock;
-	if (write_access) {
+	if (write_access) {//如果该区域对页授予了写权限，而硬件的存储机制没有授予，则COW
 		if (!pte_write(entry))
 			return do_wp_page(mm, vma, address,
 					pte, pmd, ptl, entry);
@@ -2538,6 +2559,13 @@ unlock:
  * By the time we get here, we already hold the mm semaphore
  */
 // 处理页面映射过程中的错误
+/**
+ * 当程序缺页时，调用此过程分配新的页框。
+ * mm-异常发生时，正在CPU上运行的进程的内存描述符
+ * vma-指向引起异常的线性地址所在线性区的描述符。
+ * address-引起异常的地址。
+ * write_access-如果tsk试图向address写，则为1，否则为0。为1时候，表示COW
+ */
 int handle_mm_fault(struct mm_struct *mm, struct vm_area_struct *vma,
 		unsigned long address, int write_access)
 {
@@ -2554,6 +2582,9 @@ int handle_mm_fault(struct mm_struct *mm, struct vm_area_struct *vma,
 		return hugetlb_fault(mm, vma, address, write_access);
 	//逐级创建各层页表项，创建失败，说明没有内存，返回OOM
 	// 获取当前虚拟地址所在的 pgd_t 指针
+	/**
+	 * pgd_offset和pud_alloc检查映射address的页中间目录和页表是否存在。
+	 */
 	pgd = pgd_offset(mm, address);
 	// 获取当前虚拟地址所在的 pud_t 指针
 	pud = pud_alloc(mm, pgd, address);
@@ -2567,7 +2598,12 @@ int handle_mm_fault(struct mm_struct *mm, struct vm_area_struct *vma,
 	pte = pte_alloc_map(mm, pmd, address);
 	if (!pte)
 		return VM_FAULT_OOM;
-
+	/*
+     * 至此，从pgd到pte的页表已经建立好了，就差新分配一个页面并填写到pte中了
+     */
+	/**
+	 * handle_pte_fault函数检查address地址所对应的页表项。并决定如何为进程分配一个新页框。
+	 */
 	return handle_pte_fault(mm, vma, address, pte, pmd, write_access);
 }
 

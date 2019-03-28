@@ -81,7 +81,9 @@
 	} while (0)
 
 #define local_save_flags(flags)		raw_local_save_flags(flags)
-
+//return: 
+//0:开中断了
+//1:关中断了
 #define irqs_disabled()						\
 ({								\
 	unsigned long flags;					\

@@ -648,7 +648,7 @@ static inline void expand(struct zone *zone, struct page *page,
          */
 		list_add(&page[size].lru, &area->free_list[migratetype]);
 		area->nr_free++;
-		set_page_order(&page[size], high);
+		set_page_order(&page[size], high);//设置page的PG_buddy标志，并将private字段设置为当前分配阶
 	}
 }
 
@@ -729,7 +729,7 @@ static struct page *__rmqueue_smallest(struct zone *zone, unsigned int order,
 		 * 首先在空闲块链表中删除第一个页框描述符。
 		 */
 		list_del(&page->lru);
-		rmv_page_order(page);
+		rmv_page_order(page);//删除PG_buddy位，将private字段设置为0
 		/**
 		 * 并减少空闲管理区的空闲页数量。
 		 */
@@ -836,13 +836,14 @@ static struct page *__rmqueue_fallback(struct zone *zone, int order,
 	int migratetype, i;
 
 	/* Find the largest possible block of pages in the other list */
+	//为了避免碎片化，从大阶开始
 	for (current_order = MAX_ORDER-1; current_order >= order;
 						--current_order) {
 		for (i = 0; i < MIGRATE_TYPES - 1; i++) {
 			migratetype = fallbacks[start_migratetype][i];
 
 			/* MIGRATE_RESERVE handled later if necessary */
-			if (migratetype == MIGRATE_RESERVE)
+			if (migratetype == MIGRATE_RESERVE)//用于紧急分配的内存
 				continue;
 
 			area = &(zone->free_area[current_order]);
@@ -859,6 +860,8 @@ static struct page *__rmqueue_fallback(struct zone *zone, int order,
 			 * back for a reclaimable kernel allocation, be more
 			 * agressive about taking ownership of free pages
 			 */
+			//如果分解一个大内存块，则将所有空闲页移动到优先选用的分配列表
+             //如果内核在备用列表中分配可回收内存块，则会更为积极地取得空闲页的所有权
 			if (unlikely(current_order >= (pageblock_order >> 1)) ||
 					start_migratetype == MIGRATE_RECLAIMABLE) {
 				unsigned long pages;
@@ -866,9 +869,10 @@ static struct page *__rmqueue_fallback(struct zone *zone, int order,
 								start_migratetype);
 
 				/* Claim the whole block if over half of it is free */
+				// 如果大内存块超过一半是空闲的，则主张对整个大内存块的所有权
 				if (pages >= (1 << (pageblock_order-1)))
 					set_pageblock_migratetype(page,
-								start_migratetype);
+								start_migratetype);//将修改整个大内存块的迁移类型
 
 				migratetype = start_migratetype;
 			}
@@ -882,13 +886,14 @@ static struct page *__rmqueue_fallback(struct zone *zone, int order,
 			if (current_order == pageblock_order)
 				set_pageblock_migratetype(page,
 							start_migratetype);
-
+			//如果此前已经改变了迁移类型，那么expand将使用新的迁移类型。否则，剩余部分将放置到原来的迁移列表上
 			expand(zone, page, order, current_order, area, migratetype);
 			return page;
 		}
 	}
 
 	/* Use MIGRATE_RESERVE rather than fail an allocation */
+	//还是不能满足的话，只有从MIGRATE_RESERVE中分配
 	return __rmqueue_smallest(zone, order, MIGRATE_RESERVE);
 }
 
@@ -909,7 +914,7 @@ static struct page *__rmqueue(struct zone *zone, unsigned int order,
 
 	page = __rmqueue_smallest(zone, order, migratetype);
 
-	if (unlikely(!page))
+	if (unlikely(!page))//如果指定的迁移列表不能满足分配请求，则尝试其他迁移列表
 		page = __rmqueue_fallback(zone, order, migratetype);
 
 	return page;
@@ -1195,10 +1200,11 @@ again:
 
 		/* Find a page of the appropriate migrate type */
 		list_for_each_entry(page, &pcp->list, lru)
-			if (page_private(page) == migratetype)
+			if (page_private(page) == migratetype)//页的迁移类型存储在page的private字段
 				break;
 
 		/* Allocate more to the pcp list if necessary */
+		//如果上一步中，为找到符号迁移类型的页，则向缓存中添加一些符合当前迁移类型的页，并从中移除一页
 		if (unlikely(&page->lru == &pcp->list)) {
 			pcp->count += rmqueue_bulk(zone, 0,
 					pcp->batch, &pcp->list, migratetype);
@@ -1228,6 +1234,7 @@ again:
 	put_cpu();
 
 	VM_BUG_ON(bad_range(zone, page));
+	//做准备工作:将page结构的各项属性，设置到正确状态。并根据需要，将页填0,并设置复合页
 	if (prep_new_page(page, order, gfp_flags))
 		goto again;
 	return page;
@@ -1360,9 +1367,10 @@ int zone_watermark_ok(struct zone *z, int order, unsigned long mark,
 	long min = mark;
 	long free_pages = zone_page_state(z, NR_FREE_PAGES) - (1 << order) + 1;
 	int o;
-
+	/*如果ALLOC_HIGH标志被置位。通常atomic方式会置此标记。那么将水线降低一半，即内存分配可以穿越水线一半*/
 	if (alloc_flags & ALLOC_HIGH)
 		min -= min / 2;
+	 /*如果ALLOC_HARDER标志被置位，水线再减少1/4，can_try_harder通常是当进程是一个实时进程并且在进程上下文中已经完成了内存分配。*/
 	if (alloc_flags & ALLOC_HARDER)
 		min -= min / 4;
 	/*
@@ -1375,9 +1383,13 @@ int zone_watermark_ok(struct zone *z, int order, unsigned long mark,
      */
 	for (o = 0; o < order; o++) {
 		/* At the next order, this order's pages become unavailable */
+		/* 扣除小于目标order的内存块，比如分配内存是指定的order为3，即需要分配32k大小的内存，此时需要扣除掉小于32k大小的内存块，
+     因为这些块的大小不足以分配32k的连续空间*/
 		free_pages -= z->free_area[o].nr_free << o;
 
 		/* Require fewer higher order pages to be free */
+		/*每扣除一个order的块，需要将水线除以2，目的是将水线分担到各个order，当order为3时，最终需要>=32k的内存块的容量>min/8,
+    才能继续分配内存*/
 		min >>= 1;
 
 		if (free_pages <= min)
@@ -1556,10 +1568,10 @@ zonelist_scan:
 				continue;
 		zone = *z;
 		if ((alloc_flags & ALLOC_CPUSET) &&
-			!cpuset_zone_allowed_softwall(zone, gfp_mask))
+			!cpuset_zone_allowed_softwall(zone, gfp_mask))//检查给定内存域是否属于该进程允许运行的CPU
 				goto try_next_zone;
 
-		if (!(alloc_flags & ALLOC_NO_WATERMARKS)) {
+		if (!(alloc_flags & ALLOC_NO_WATERMARKS)) {//检查是否有足够的空闲页
 			unsigned long mark;
 			if (alloc_flags & ALLOC_WMARK_MIN)
 				mark = zone->pages_min;
@@ -1650,7 +1662,7 @@ restart:
 	}
 
 	page = get_page_from_freelist(gfp_mask|__GFP_HARDWALL, order,
-				zonelist, ALLOC_WMARK_LOW|ALLOC_CPUSET);
+				zonelist, ALLOC_WMARK_LOW|ALLOC_CPUSET);//最简单的情况，直接一次就分配成功
 	if (page)
 		goto got_pg;
 
@@ -1670,6 +1682,7 @@ restart:
 	 * 就唤醒kswapd内核线程来异步的开始回收页框。
 	 */
 	for (z = zonelist->zones; *z; z++)
+		//唤醒kswapd守护进程，通过缩小内核缓存和页面回收，获得空闲内存
 		wakeup_kswapd(*z, order);
 
 	/*
@@ -1686,6 +1699,7 @@ restart:
 	 * 执行对内存管理区的第二次扫描，将值z->pages_min作为阀值传入。这个值已经在上一步的基础上降低了（pages_low一般是pages_min的5/4，pages_high一般是pages_min的3/2）。
 	 * 当然，实际的min值还是要由can_try_harder和gfp_high确定。z->pages_min仅仅是一个参考值而已。
 	 */
+	//下面对分配标志进行设置，修改为在当前情况下，更有可能分配成功的标志
 	alloc_flags = ALLOC_WMARK_MIN;
 	if ((unlikely(rt_task(p)) && !in_interrupt()) || !wait)
 		alloc_flags |= ALLOC_HARDER;
@@ -1719,9 +1733,10 @@ rebalance:
 	 * 如果产生内存分配的内核控制路径不是一个中断处理程序或者可延迟函数，
 	 * 并且它试图回收页框（PF_MEMALLOC，TIF_MEMDIE标志被置位）,那么才对内存管理区进行第三次扫描。
 	 */
+//PF_MEMALLOC：通常只有分配器自身需要更多内存时设置.TIF_MEMDIE:线程刚好被OOM killer机制选中时，设置.
 	if (((p->flags & PF_MEMALLOC) || unlikely(test_thread_flag(TIF_MEMDIE)))
 			&& !in_interrupt()) {
-		if (!(gfp_mask & __GFP_NOMEMALLOC)) {
+		if (!(gfp_mask & __GFP_NOMEMALLOC)) {//__GFP_NOMEMALLOC:禁止使用紧急分配表
 nofail_alloc:
 			/* go through the zonelist yet again, ignoring mins */
 			/**
@@ -1742,6 +1757,7 @@ nofail_alloc:
 		 * 不论是高端内存区还是普通内存区、还是DMA内存区，甚至这些管理区中保留的内存都没有了。
 		 * 意味着我们的家底都完了。
 		 */
+		//通过内核消息报告用户，并将NULL指针返回调用者
 		goto nopage;
 	}
 
@@ -1754,6 +1770,7 @@ nofail_alloc:
 	/**
 	 * 如果当前进程能够被阻塞，调用cond_resched检查是否有其他进程需要CPU
 	 */
+	//查看是否需要重新调度，因为后面的操作比较耗时
 	cond_resched();
 
 	/* We now go into synchronous reclaim */
@@ -1771,6 +1788,9 @@ nofail_alloc:
 	 * 调用try_to_free_pages寻找一些页框来回收。
 	 * 这个函数可能会阻塞当前进程。一旦返回，就重设PF_MEMALLOC，并再次调用cond_resched
 	 */
+	//try_to_free_pages被PF_MEMALLOC标志隔离开来的原因是
+    //try_to_free_pages自身也需要分配新的内存，该进程自身应该在
+    //内存管理方面拥有最高优先级
 	did_some_progress = try_to_free_pages(zonelist->zones, order, gfp_mask);
 
 	p->reclaim_state = NULL;
@@ -1788,6 +1808,7 @@ nofail_alloc:
 						zonelist, alloc_flags);
 		if (page)
 			goto got_pg;
+		//如果内核可能执行影响VFS层的调用而又没有设置 GFP_NORETRY ,那么调用OOM killer
 	} else if ((gfp_mask & __GFP_FS) && !(gfp_mask & __GFP_NORETRY)) {
 		if (!try_set_zone_oom(zonelist)) {
 			schedule_timeout_uninterruptible(1);
@@ -1819,6 +1840,7 @@ nofail_alloc:
 		}
 
 		/* The OOM killer will not help higher order allocs so fail */
+		//杀死一个进程未必立即出现多于2^PAGE_ALLOC_COSTLY_ORDER页的连续内存区，因此如果要分配如此大的内存区，那么内核会绕过所选进程，不执行杀死进程的任务，而是承认失败
 		if (order > PAGE_ALLOC_COSTLY_ORDER) {
 			clear_zonelist_oom(zonelist);
 			goto nopage;
@@ -1854,6 +1876,7 @@ nofail_alloc:
 	 * 要重试，就调用blk_congestion_wait 使进程休眠一会。再跳到rebalance 重试。
 	 */
 	if (do_retry) {
+		//等待块设备层队列释放,这样内核就有机会换出页
 		congestion_wait(WRITE, HZ/50);
 		goto rebalance;
 	}

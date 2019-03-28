@@ -662,11 +662,11 @@ static int try_to_unmap_one(struct page *page, struct vm_area_struct *vma,
 	pte_t pteval;
 	spinlock_t *ptl;
 	int ret = SWAP_AGAIN;
-
+	//计算物理页面的线性地址
 	address = vma_address(page, vma);
 	if (address == -EFAULT)
 		goto out;
-
+	//获取线性地址对应的页表项地址
 	pte = page_check_address(page, mm, address, &ptl);
 	if (!pte)
 		goto out;
@@ -676,6 +676,7 @@ static int try_to_unmap_one(struct page *page, struct vm_area_struct *vma,
 	 * If it's recently referenced (perhaps page_referenced
 	 * skipped over this mm) then we should reactivate it.
 	 */
+	//判断页面是否可以回收
 	if (!migration && ((vma->vm_flags & VM_LOCKED) ||
 			(ptep_clear_flush_young(vma, address, pte)))) {
 		ret = SWAP_FAIL;
@@ -683,6 +684,7 @@ static int try_to_unmap_one(struct page *page, struct vm_area_struct *vma,
 	}
 
 	/* Nuke the page table entry. */
+	//更新页表项并冲刷相应的TLB
 	flush_cache_page(vma, address, page_to_pfn(page));
 	pteval = ptep_clear_flush(vma, address, pte);
 
@@ -694,8 +696,9 @@ static int try_to_unmap_one(struct page *page, struct vm_area_struct *vma,
 	update_hiwater_rss(mm);
 
 	if (PageAnon(page)) {
+		//保存换出位置
 		swp_entry_t entry = { .val = page_private(page) };
-
+		
 		if (PageSwapCache(page)) {
 			/*
 			 * Store the swap location in the pte.

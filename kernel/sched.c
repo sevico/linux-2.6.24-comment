@@ -6914,9 +6914,21 @@ void __might_sleep(char *file, int line)
 {
 #ifdef in_atomic
 	static unsigned long prev_jiffy;	/* ratelimiting */
+	 //1.current_thread_info()->preempt_count除第28bit外，别的位全为零，返回1 && 开中断了，正常返回，无报错
+	//2.current_thread_info()->preempt_count除第28bit外，别的位有一位或多位不为零，返回0,报错
+	//或是系统没在运行状态，或是处理OOPS均不报错，否则报错
+	//3.current_thread_info()->preempt_count除第28bit外，别的位全为零，返回1 && 但是关中断了，
+        //若是系统没在运行状态，或是处理OOPS不报错，否则报错
+        //
+	//简单小结：(不考虑第28bit)
+        //preempt_count为0，开中断==>OK
+        //preempt_count为0，关中断==>Error
+        //preempt_count非0，无论开关中断  ====>Error
+        //系统没运行|oops==>OK
 
 	if ((in_atomic() || irqs_disabled()) &&
 	    system_state == SYSTEM_RUNNING && !oops_in_progress) {
+		//检查间隔，若是在HZ内重复进来，也不报错
 		if (time_before(jiffies, prev_jiffy + HZ) && prev_jiffy)
 			return;
 		prev_jiffy = jiffies;

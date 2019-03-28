@@ -1018,15 +1018,17 @@ force_reclaim_mapped:
 
 	lru_add_drain();
 	spin_lock_irq(&zone->lru_lock);
+	//通过isolate_mode限定将哪些页面从LRU链表移动到l_hold中
 	pgmoved = isolate_lru_pages(nr_pages, &zone->active_list,
 			    &l_hold, &pgscanned, sc->order, ISOLATE_ACTIVE);
 	zone->pages_scanned += pgscanned;
 	__mod_zone_page_state(zone, NR_ACTIVE, -pgmoved);
 	spin_unlock_irq(&zone->lru_lock);
-
+	//扫描临时l_hold链表中的页面，有些页面会添加到l_active中，有些会添加到l_inactive中，剩下部分可以直接释放。
 	while (!list_empty(&l_hold)) {
 		cond_resched();
 		page = lru_to_page(&l_hold);
+		//将page从当前LRU链表l_hold中移除
 		list_del(&page->lru);
 		if (page_mapped(page)) {
 			if (!reclaim_mapped ||

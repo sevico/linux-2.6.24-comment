@@ -63,6 +63,7 @@ void arch_pick_mmap_layout(struct mm_struct *mm)
 	 * Fall back to the standard layout if the personality
 	 * bit is set, or if the expected stack growth is unlimited:
 	 */
+	//体系结构是否想要在不同mmap区域布局之间做出选择
 	if (sysctl_legacy_va_layout ||
 			(current->personality & ADDR_COMPAT_LAYOUT) ||
 			current->signal->rlim[RLIMIT_STACK].rlim_cur == RLIM_INFINITY) {

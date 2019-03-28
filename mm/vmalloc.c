@@ -595,10 +595,11 @@ static void *__vmalloc_node(unsigned long size, gfp_t gfp_mask, pgprot_t prot,
 	 * 通过调用get_vm_area来创建一个新的描述符。并返回分配给这个内存区的线性地址。
 	 * 描述符的flags字段被初始化为VM_ALLOC，这意味着通过使用vmalloc函数，非连续页框将被映射到一个线性地址空间。
 	 */
+	//寻找一个适当的vm_struct结构
 	area = get_vm_area_node(size, VM_ALLOC, node, gfp_mask);
 	if (!area)
 		return NULL;
-
+	//分配物理内存并映射
 	return __vmalloc_area_node(area, gfp_mask, prot, node);
 }
 
