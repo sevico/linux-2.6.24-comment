@@ -52,7 +52,7 @@ typedef struct proc_dir_entry *(shadow_proc_t)(struct task_struct *task,
 						struct proc_dir_entry *pde);
 
 struct proc_dir_entry {
-	unsigned int low_ino;
+	unsigned int low_ino;//inode编号
 	unsigned short namelen;
 	const char *name;
 	mode_t mode;

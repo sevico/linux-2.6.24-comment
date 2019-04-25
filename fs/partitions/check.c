@@ -372,25 +372,25 @@ void add_partition(struct gendisk *disk, int part, sector_t start, sector_t len,
 {
 	struct hd_struct *p;
 
-	p = kzalloc(sizeof(*p), GFP_KERNEL);
+	p = kzalloc(sizeof(*p), GFP_KERNEL);//分配一个新的hd_struct实例
 	if (!p)
 		return;
 	
-	p->start_sect = start;
+	p->start_sect = start;//信息填充
 	p->nr_sects = len;
 	p->partno = part;
 	p->policy = disk->policy;
 
-	if (isdigit(disk->kobj.k_name[strlen(disk->kobj.k_name)-1]))
+	if (isdigit(disk->kobj.k_name[strlen(disk->kobj.k_name)-1]))//指定用于显示的名字
 		kobject_set_name(&p->kobj, "%sp%d",
 				 kobject_name(&disk->kobj), part);
 	else
 		kobject_set_name(&p->kobj, "%s%d",
 				 kobject_name(&disk->kobj),part);
-	p->kobj.parent = &disk->kobj;
+	p->kobj.parent = &disk->kobj;//将分区内核对象的父对象设置为通用硬盘对象
 	p->kobj.ktype = &ktype_part;
 	kobject_init(&p->kobj);
-	kobject_add(&p->kobj);
+	kobject_add(&p->kobj);//使之成为块设备子系统的一个成员
 	if (!disk->part_uevent_suppress)
 		kobject_uevent(&p->kobj, KOBJ_ADD);
 	sysfs_create_link(&p->kobj, &block_subsys.kobj, "subsystem");

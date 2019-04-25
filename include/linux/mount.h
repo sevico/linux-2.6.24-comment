@@ -37,6 +37,7 @@ struct mnt_namespace;
 
 struct vfsmount {
 	/**
+		vfsmount实例的地址和相关的dentry对象的地址用来计算散列和
 		 * 用于散列表链表的指针。
 		 内核使用了mount_hashtable（定义在文件fs/namespace.c）对vfsmount结构
 进行管理，mount_hashtable是由list_head组成的链表。一个vfsmount一经
@@ -86,6 +87,7 @@ struct vfsmount {
 	 */
 	char *mnt_devname;		/* Name of device e.g. /dev/dsk/hda1 */
 	//所有己安装的文件系统的vfsmount通过mnt_list链接在一起
+	//一个命名空间的所有装载的文件系统都保存在namespace->list链表中。使用vfsmount的mnt_list成员作为链表元素
 	struct list_head mnt_list;
 	/**
 	 * 如果文件系统标记为过期，就设置这个标志。

@@ -1175,9 +1175,9 @@ static int do_open(struct block_device *bdev, struct file *file, int for_part)
 					bdi = &default_backing_dev_info;
 				bdev->bd_inode->i_data.backing_dev_info = bdi;
 			}
-			if (bdev->bd_invalidated)
+			if (bdev->bd_invalidated)//现存分区无效，重新读取分区表
 				rescan_partitions(disk, bdev);
-		} else {
+		} else {//如果打开的块设备表示一个此前没有打开过的分区，内核需要将分区的block_device实例与包含分区的block_device关联起来
 			struct hd_struct *p;
 			struct block_device *whole;
 			whole = bdget_disk(disk, 0);

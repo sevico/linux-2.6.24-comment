@@ -590,6 +590,7 @@ struct block_device {
 	/**
 	 * 用于块设备描述符链表的指针
 	 */
+	//用于跟踪记录系统中所有可用的block_device实例。该链表的表头为全局变量all_bdevs
 	struct list_head	bd_list;
 	/**
 	 * 指向块设备的专门描述符（通常为NULL）
@@ -1323,14 +1324,14 @@ int generic_osync_inode(struct inode *, struct address_space *, int);
 typedef int (*filldir_t)(void *, const char *, int, loff_t, u64, unsigned);
 
 struct block_device_operations {
-	int (*open) (struct inode *, struct file *);
-	int (*release) (struct inode *, struct file *);
-	int (*ioctl) (struct inode *, struct file *, unsigned, unsigned long);
+	int (*open) (struct inode *, struct file *);//打开文件
+	int (*release) (struct inode *, struct file *);//关闭文件
+	int (*ioctl) (struct inode *, struct file *, unsigned, unsigned long);//向块设备发送特殊命令
 	long (*unlocked_ioctl) (struct file *, unsigned, unsigned long);
 	long (*compat_ioctl) (struct file *, unsigned, unsigned long);
 	int (*direct_access) (struct block_device *, sector_t, unsigned long *);
-	int (*media_changed) (struct gendisk *);
-	int (*revalidate_disk) (struct gendisk *);
+	int (*media_changed) (struct gendisk *);//检查存储介质是否已经改变
+	int (*revalidate_disk) (struct gendisk *);//让设备重新生效
 	int (*getgeo)(struct block_device *, struct hd_geometry *);
 	struct module *owner;
 };

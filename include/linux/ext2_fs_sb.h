@@ -84,11 +84,11 @@ struct ext2_sb_info {
 	struct buffer_head * s_sbh;	/* Buffer containing the super block */
 	struct ext2_super_block * s_es;	/* Pointer to the super block in the buffer */
 	struct buffer_head ** s_group_desc;
-	unsigned long  s_mount_opt;
-	unsigned long s_sb_block;
+	unsigned long  s_mount_opt;//保存了装载选项
+	unsigned long s_sb_block;//如果超级块不是从默认的块1读取，而是从其他块读取（在第一个超级块损坏的情况下），对应的块（相对值）保存在s_sb_block中。 
 	uid_t s_resuid;
 	gid_t s_resgid;
-	unsigned short s_mount_state;
+	unsigned short s_mount_state;//装载状态
 	unsigned short s_pad;
 	int s_addr_per_block_bits;
 	int s_desc_per_block_bits;
@@ -96,8 +96,8 @@ struct ext2_sb_info {
 	int s_first_ino;
 	spinlock_t s_next_gen_lock;
 	u32 s_next_generation;
-	unsigned long s_dir_count;
-	u8 *s_debts;
+	unsigned long s_dir_count;//目录的总数
+	u8 *s_debts;//是一个指针，指向一个数组（数组项为8位数字，该数组通常比较短），每个数组项对应于一个块组
 	struct percpu_counter s_freeblocks_counter;
 	struct percpu_counter s_freeinodes_counter;
 	struct percpu_counter s_dirs_counter;

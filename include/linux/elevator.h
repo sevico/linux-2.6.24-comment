@@ -32,28 +32,28 @@ typedef void (elevator_exit_fn) (elevator_t *);
 
 struct elevator_ops
 {
-	elevator_merge_fn *elevator_merge_fn;
-	elevator_merged_fn *elevator_merged_fn;
-	elevator_merge_req_fn *elevator_merge_req_fn;
+	elevator_merge_fn *elevator_merge_fn;//检查一个新的请求是否可以与现存请求合并它还指定了请求插入到请求队列中的位置。 
+	elevator_merged_fn *elevator_merged_fn;//在两个请求已经合并后调用
+	elevator_merge_req_fn *elevator_merge_req_fn;//将两个请求合并为一个请求。
 	elevator_allow_merge_fn *elevator_allow_merge_fn;
 
-	elevator_dispatch_fn *elevator_dispatch_fn;
-	elevator_add_req_fn *elevator_add_req_fn;
+	elevator_dispatch_fn *elevator_dispatch_fn;//从给定的请求队列中选择下一步应该调度执行的请求。
+	elevator_add_req_fn *elevator_add_req_fn;//向请求队列添加请求
 	elevator_activate_req_fn *elevator_activate_req_fn;
 	elevator_deactivate_req_fn *elevator_deactivate_req_fn;
 
-	elevator_queue_empty_fn *elevator_queue_empty_fn;
+	elevator_queue_empty_fn *elevator_queue_empty_fn;//检查队列是否包含可供处理的请求。 
 	elevator_completed_req_fn *elevator_completed_req_fn;
 
-	elevator_request_list_fn *elevator_former_req_fn;
+	elevator_request_list_fn *elevator_former_req_fn;//分别查找给定请求的前一个和后一个请求
 	elevator_request_list_fn *elevator_latter_req_fn;
 
-	elevator_set_req_fn *elevator_set_req_fn;
+	elevator_set_req_fn *elevator_set_req_fn;//在创建新请求和释放回内存管理子系统时调用
 	elevator_put_req_fn *elevator_put_req_fn;
 
 	elevator_may_queue_fn *elevator_may_queue_fn;
 
-	elevator_init_fn *elevator_init_fn;
+	elevator_init_fn *elevator_init_fn;//分别在队列初始化和释放时调用
 	elevator_exit_fn *elevator_exit_fn;
 	void (*trim)(struct io_context *);
 };
@@ -71,7 +71,7 @@ struct elv_fs_entry {
  */
 struct elevator_type
 {
-	struct list_head list;
+	struct list_head list;//内核将所有IO调度器在一个标准的双链表中维护（表头为elv_list）
 	struct elevator_ops ops;
 	struct elv_fs_entry *elevator_attrs;
 	char elevator_name[ELV_NAME_MAX];

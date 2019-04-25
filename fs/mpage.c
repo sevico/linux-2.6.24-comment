@@ -248,6 +248,8 @@ do_mpage_readpage(struct bio *bio, struct page *page, unsigned nr_pages,
 			 * 调用get_block得到逻辑块号，即相对于磁盘或分区开始位置的块索引。
 			 * 页中每一块的逻辑号存放在一个本地数据中。
 			 */
+			/*下面直接调用ext3_get_block读取相应的物理块，其中buffhead中会
+             将对应的物理块号存放到b_blocknr字段中*/
 			if (get_block(inode, block_in_file, map_bh, 0))
 				goto confused;
 			*first_logical_block = block_in_file;
@@ -284,6 +286,7 @@ do_mpage_readpage(struct bio *bio, struct page *page, unsigned nr_pages,
 			goto confused;		/* hole -> non-hole */
 
 		/* Contiguous blocks? */
+		/*判断块是不是连续的，连续的则进行合并提交一个bio*/
 		if (page_block && blocks[page_block-1] != map_bh->b_blocknr-1)
 			goto confused;
 		nblocks = map_bh->b_size >> blkbits;
@@ -293,6 +296,7 @@ do_mpage_readpage(struct bio *bio, struct page *page, unsigned nr_pages,
 				break;
 			} else if (page_block == blocks_per_page)
 				break;
+			/*最终将b_blocknr存放到了blocks数组中*/
 			blocks[page_block] = map_bh->b_blocknr+relative_block;
 			page_block++;
 			block_in_file++;
@@ -324,11 +328,13 @@ do_mpage_readpage(struct bio *bio, struct page *page, unsigned nr_pages,
 	/*
 	 * This page will go to BIO.  Do we need to send this BIO off first?
 	 */
+	/*bio开始为0,后续分配*/
 	if (bio && (*last_block_in_bio != blocks[0] - 1))
 		bio = mpage_bio_submit(READ, bio);
 
 alloc_new:
 	if (bio == NULL) {/* 分配一个bio，并初始化它 */
+		/*将blocks开始的物理块号附加到bio*/
 		bio = mpage_alloc(bdev, blocks[0] << (blkbits - 9),
 			  	min_t(int, nr_pages, bio_get_nr_vecs(bdev)),
 				GFP_KERNEL);
@@ -341,6 +347,7 @@ alloc_new:
 	 * 向驱动提交bio请求。
 	 */
 	if (bio_add_page(bio, page, length, 0) < length) {
+		/*向设备层提交bio*/
 		bio = mpage_bio_submit(READ, bio);
 		goto alloc_new;
 	}
@@ -354,7 +361,7 @@ out:
 /**
  * 函数运行到这里，则页中含有的块在磁盘不连续。
  */
-
+/*不连续的块则针对每个块分配一个bio进行提交*/
 confused:
 	if (bio)
 		bio = mpage_bio_submit(READ, bio);

@@ -488,6 +488,7 @@ void bus_attach_device(struct device * dev)
 
 	if (bus) {
 		dev->is_registered = 1;
+		// 如果总线支持自动探测，则调用driver_attach
 		if (bus->drivers_autoprobe)
 			ret = device_attach(dev);
 		WARN_ON(ret < 0);
@@ -852,6 +853,7 @@ int bus_register(struct bus_type * bus)
 
 	bus->subsys.kobj.kset = &bus_subsys;
 	//向全局的bus_subsys”登记”, 把自己加入到bus_subsys的链表中去
+	//通过嵌入的kset类型成员subsys，将新总线添加到总线子系统
 	retval = subsystem_register(&bus->subsys);
 	if (retval)
 		goto out;
@@ -862,6 +864,7 @@ int bus_register(struct bus_type * bus)
 
 	kobject_set_name(&bus->devices.kobj, "devices");
 	bus->devices.kobj.parent = &bus->subsys.kobj;
+	//总线中的设备
 	retval = kset_register(&bus->devices);
 	if (retval)
 		goto bus_devices_fail;
@@ -869,6 +872,7 @@ int bus_register(struct bus_type * bus)
 	kobject_set_name(&bus->drivers.kobj, "drivers");
 	bus->drivers.kobj.parent = &bus->subsys.kobj;
 	bus->drivers.ktype = &driver_ktype;
+	//总线中的驱动
 	retval = kset_register(&bus->drivers);
 	if (retval)
 		goto bus_drivers_fail;

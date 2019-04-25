@@ -13,10 +13,10 @@ struct module;
 struct cdev {
 	struct kobject kobj;
 	struct module *owner;
-	const struct file_operations *ops;
-	struct list_head list;
-	dev_t dev;
-	unsigned int count;
+	const struct file_operations *ops;//实现了与硬件通信的具体操作
+	struct list_head list;//链接表示该设备的所有设备文件的inode（inode中的i_devices用作链表元素）
+	dev_t dev;//设备号
+	unsigned int count;//表示与该设备关联的从设备号的数目
 };
 
 void cdev_init(struct cdev *, const struct file_operations *);

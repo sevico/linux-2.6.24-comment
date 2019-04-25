@@ -540,6 +540,7 @@ struct ext2_dir_entry {
  */
 struct ext2_dir_entry_2 {
 	__le32	inode;			/* Inode number */
+	//偏移量，表示从rec_len字段末尾到下一个rec_len字段末尾的偏移量
 	__le16	rec_len;		/* Directory entry length */
 	__u8	name_len;		/* Name length */
 	__u8	file_type;

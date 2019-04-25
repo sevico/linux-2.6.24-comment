@@ -50,12 +50,12 @@ static struct kobj_map *cdev_map;
 static DEFINE_MUTEX(chrdevs_lock);
 
 static struct char_device_struct {
-	struct char_device_struct *next;
+	struct char_device_struct *next;//连接同一散列行中的所有散列元素
 	unsigned int major;
-	unsigned int baseminor;
+	unsigned int baseminor;//baseminor是包含minorct个从设备号的连续范围中小的从设备号
 	int minorct;
 	char name[64];
-	struct file_operations *fops;
+	struct file_operations *fops;//该设备关联的file_operations实例
 	struct cdev *cdev;		/* will die */
 } *chrdevs[CHRDEV_MAJOR_HASH_SIZE];
 

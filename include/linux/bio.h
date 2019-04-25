@@ -120,6 +120,7 @@ struct bio {
 	//bio_vec链表：内存的位置
 	struct bio_vec		*bi_io_vec;	/* the actual vec list */
 	//I/O完成方法
+	//在硬件传输完成时，设备驱动程序必须调用bi_end_io。这使得块设备层有机会进行清理，或唤醒等待该清理结束的睡眠进程
 	bio_end_io_t		*bi_end_io;
 	//使用计数
 	atomic_t		bi_cnt;		/* pin count */

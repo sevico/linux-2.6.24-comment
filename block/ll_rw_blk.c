@@ -1557,8 +1557,8 @@ void blk_plug_device(struct request_queue *q)
 	if (blk_queue_stopped(q))
 		return;
 
-	if (!test_and_set_bit(QUEUE_FLAG_PLUGGED, &q->queue_flags)) {
-		mod_timer(&q->unplug_timer, jiffies + q->unplug_delay);
+	if (!test_and_set_bit(QUEUE_FLAG_PLUGGED, &q->queue_flags)) {//如果队列不为插入状态，则设置
+		mod_timer(&q->unplug_timer, jiffies + q->unplug_delay);//设置拔出定时器（会调用blk_unplug_timeout拔出队列）
 		blk_add_trace_generic(q, NULL, 0, BLK_TA_PLUG);
 	}
 }
@@ -1590,10 +1590,10 @@ void __generic_unplug_device(struct request_queue *q)
 	if (unlikely(blk_queue_stopped(q)))
 		return;
 
-	if (!blk_remove_plug(q))
+	if (!blk_remove_plug(q))//清除队列的插入状态和用于自动拔出的定时器
 		return;
 	// init to scsi_request_fn():
-	q->request_fn(q);
+	q->request_fn(q);//处理等待的请求
 }
 EXPORT_SYMBOL(__generic_unplug_device);
 
@@ -3069,7 +3069,7 @@ static int __make_request(struct request_queue *q, struct bio *bio)
 			;
 	}
 
-get_rq:
+get_rq://将新请求添加到请求队列中
 	/*
 	 * This sync check and mask will be re-done in init_request_from_bio(),
 	 * but we need to set it earlier to expose the sync flag to the

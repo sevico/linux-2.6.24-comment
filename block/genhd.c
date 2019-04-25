@@ -182,8 +182,8 @@ void add_disk(struct gendisk *disk)
 {
 	disk->flags |= GENHD_FL_UP;
 	blk_register_region(MKDEV(disk->major, disk->first_minor),
-			    disk->minors, NULL, exact_match, exact_lock, disk);
-	register_disk(disk);
+			    disk->minors, NULL, exact_match, exact_lock, disk);//在bdev_map中添加gendisk
+	register_disk(disk);//获取该设备的一个新的block_device实例。也会调用rescan_partitions，扫描分区。并利用add_partition添加分区
 	blk_register_queue(disk);
 }
 

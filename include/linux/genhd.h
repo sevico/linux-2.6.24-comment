@@ -82,8 +82,8 @@ struct partition {
 } __attribute__((packed));
 
 struct hd_struct {
-	sector_t start_sect;
-	sector_t nr_sects;
+	sector_t start_sect;//该分区在块设备上的起始扇区
+	sector_t nr_sects;//该分区在块设备上的长度
 	struct kobject kobj;
 	struct kobject *holder_dir;
 	unsigned ios[2], sectors[2];	/* READs and WRITEs */
@@ -115,16 +115,16 @@ struct gendisk {
 	int first_minor;
 	int minors;                     /* maximum number of minors, =1 for
                                          * disks that can't be partitioned. */
-	char disk_name[32];		/* name of major driver */
+	char disk_name[32];		/* name of major driver *///给出磁盘名称
 	struct hd_struct **part;	/* [indexed by minor] */
-	int part_uevent_suppress;
-	struct block_device_operations *fops;
-	struct request_queue *queue;
+	int part_uevent_suppress;//如果设置正值，在检测到设备的分区信息改变时，就不会向用户空间 发送热插拔事件。
+	struct block_device_operations *fops;//特定于设备，执行各种底层任务的各个函数
+	struct request_queue *queue;//请求队列
 	void *private_data;
-	sector_t capacity;
+	sector_t capacity;//磁盘容量，单位是扇区
 
 	int flags;
-	struct device *driverfs_dev;
+	struct device *driverfs_dev;//标识磁盘所属的硬件设备
 	struct kobject kobj;
 	struct kobject *holder_dir;
 	struct kobject *slave_dir;

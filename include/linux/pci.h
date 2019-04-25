@@ -136,11 +136,12 @@ struct pci_dev {
 	struct list_head global_list;	/* node in list of all PCI devices */
 	struct list_head bus_list;	/* node in per-bus list */
 	struct pci_bus	*bus;		/* bus this device is on */
+	//该桥接器设备连通的总线(指向“下级”总线)
 	struct pci_bus	*subordinate;	/* bus this device bridges to */
 
 	void		*sysdata;	/* hook for sys-specific extension */
 	struct proc_dir_entry *procent;	/* device entry in /proc/bus/pci */
-
+	//devfn和 rom_base_reg之间的所有成员只是用于存储上文提到的配置空间数据
 	unsigned int	devfn;		/* encoded device & function index */
 	unsigned short	vendor;
 	unsigned short	device;
@@ -260,7 +261,9 @@ struct pci_bus {
 	struct pci_bus	*parent;	/* parent bus this bridge is on */
 	struct list_head children;	/* list of child buses */
 	struct list_head devices;	/* list of devices on this bus */
+	//父总线所看到的桥接器设备（除总线0以外，所有系统总线都可以只通过一个PCI桥接器寻址，桥接器类似于一个普通的PCI设备）
 	struct pci_dev	*self;		/* bridge device as seen by parent */
+	//导向到该总线的地址空间
 	struct resource	*resource[PCI_BUS_NUM_RESOURCES];
 					/* address space routed to this bus */
 
@@ -376,8 +379,11 @@ struct module;
 struct pci_driver {
 	struct list_head node;
 	char *name;
+	//（子）设备和（子）厂商ID用于在一个列表中 唯一地标识所支持的设备，内核使用该列表来确定驱动程序所支持的设备
 	const struct pci_device_id *id_table;	/* must be non-NULL for probe to be called */
+	//检查该驱动程序是否支持某个PCI设备
 	int  (*probe)  (struct pci_dev *dev, const struct pci_device_id *id);	/* New device inserted */
+	//用于移除设备
 	void (*remove) (struct pci_dev *dev);	/* Device removed (NULL if not a hot-plug capable driver) */
 	int  (*suspend) (struct pci_dev *dev, pm_message_t state);	/* Device suspended */
 	int  (*suspend_late) (struct pci_dev *dev, pm_message_t state);
@@ -386,6 +392,7 @@ struct pci_driver {
 	void (*shutdown) (struct pci_dev *dev);
 
 	struct pci_error_handlers *err_handler;
+	//建立与通用设备模型的关联
 	struct device_driver	driver;
 	struct pci_dynids dynids;
 };

@@ -2404,23 +2404,23 @@ struct dentry *proc_pid_lookup(struct inode *dir, struct dentry * dentry, struct
 	unsigned tgid;
 	struct pid_namespace *ns;
 
-	result = proc_base_lookup(dir, dentry);
+	result = proc_base_lookup(dir, dentry);//处理self目录的情况(创建一个inode表示self，并初始化inode operations结构中的链接相关操作)
 	if (!IS_ERR(result) || PTR_ERR(result) != -ENOENT)
 		goto out;
 
-	tgid = name_to_int(dentry);
+	tgid = name_to_int(dentry);//将PID字符串转换成整数
 	if (tgid == ~0U)
 		goto out;
 
 	ns = dentry->d_sb->s_fs_info;
 	rcu_read_lock();
-	task = find_task_by_pid_ns(tgid, ns);
+	task = find_task_by_pid_ns(tgid, ns);//找到task_struct结构
 	if (task)
 		get_task_struct(task);
 	rcu_read_unlock();
 	if (!task)
 		goto out;
-
+	//首先创建一个proc inode，然后初始化inode_operations为proc_tgid_base_inode_operations
 	result = proc_pid_instantiate(dir, dentry, task, NULL);
 	put_task_struct(task);
 out:

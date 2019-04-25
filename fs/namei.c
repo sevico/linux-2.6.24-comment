@@ -826,6 +826,7 @@ static int do_lookup(struct nameidata *nd, struct qstr *name,
 done:
 	path->mnt = mnt;
 	path->dentry = dentry;
+	//确保已装载文件系统的根目录用作装载点（可能有几个文件系统相继装载到前一个文件系统中，，除了后一个文件系统，所有其他文件系统都被相邻的后一个文件系统隐藏）
 	__follow_mount(path);
 	return 0;
 
@@ -882,11 +883,11 @@ static fastcall int __link_path_walk(const char * name, struct nameidata *nd)
 		unsigned int c;
 
 		nd->flags |= LOOKUP_CONTINUE;
-		err = exec_permission_lite(inode, nd);
+		err = exec_permission_lite(inode, nd);//权限检查
 		if (err == -EAGAIN)
-			err = vfs_permission(nd, MAY_EXEC);
+			err = vfs_permission(nd, MAY_EXEC);//调用permission方法进行权限检查
  		if (err)
-			break;
+			break;//权限错误
 
 		this.name = name;
 		c = *(const unsigned char *)name;
@@ -897,8 +898,8 @@ static fastcall int __link_path_walk(const char * name, struct nameidata *nd)
 			hash = partial_name_hash(c, hash);
 			c = *(const unsigned char *)name;
 		} while (c && (c != '/'));
-		this.len = name - (const char *) this.name;
-		this.hash = end_name_hash(hash);
+		this.len = name - (const char *) this.name;//提取路径中分量
+		this.hash = end_name_hash(hash);//计算散列值
 
 		/* remove trailing slashes? */
 		//执行到这里，this 代表本次要解析的名字
@@ -925,11 +926,15 @@ static fastcall int __link_path_walk(const char * name, struct nameidata *nd)
 			case 2:	
 				if (this.name[1] != '.')
 					break;
+				/*follow_dotdot函数。当查找操作处理进程的根目录时，..是没有效果的，因为无法切换到根目录的父目录。
+				否则，有两个可用的选项。如果当前目录不是一个装载点的根目录，则将当前dentry对象的d_parent成员用作新的目录，
+				因为它总是表示父目录。但如果当前目录是一个已装载文件系统的根目录，保存在mnt_mountpoint和mnt_parent中的信息用于定义新的dentry和vfsmount对象。
+				follow_mount和lookup_mnt用于取得所需的信息(follow_mount,找到最后的挂载点)*/
 				follow_dotdot(nd);
 				inode = nd->dentry->d_inode;
 				/* fallthrough */
 			case 1:
-				continue;
+				continue;//一个点（.），表示当前目录，内核将直接跳过查找循环的下一个周期，因为在目录层次结构中的位置没有改变
 		}
 		/*
 		 * See if the low-level filesystem might want
@@ -957,7 +962,7 @@ static fastcall int __link_path_walk(const char * name, struct nameidata *nd)
 		if (!inode->i_op)
 			goto out_dput;
 		//在对 ext2_read_inode()函数的分析过程中
-		//我们看到 ext2_ read_ inode（）为目录，普通文件或者符号链接设置不同的i_op，
+		//我们看到 ext2_read_inode（）为目录，普通文件或者符号链接设置不同的i_op，
 		//所以在这里，如果 i_ op 的 follow_ link 不为空，那就说明这一定是一个符号链接，
 		//于是调用 do_follow_link()处理符号链接
 		if (inode->i_op->follow_link) {
@@ -1180,6 +1185,7 @@ set_it:
 }
 
 /* Returns 0 and nd will be valid on success; Retuns error, otherwise. */
+//name:所需的名称，flags标志，nd:临时结果的“暂存器”
 static int fastcall do_path_lookup(int dfd, const char *name,
 				unsigned int flags, struct nameidata *nd)
 {
@@ -1192,7 +1198,7 @@ static int fastcall do_path_lookup(int dfd, const char *name,
 	nd->flags = flags;
 	nd->depth = 0;
 
-	if (*name=='/') {
+	if (*name=='/') {//使用当前根目录的dentry和vfsmount实例作为起点
 		read_lock(&fs->lock);
 		if (fs->altroot && !(nd->flags & LOOKUP_NOALT)) {
 			nd->mnt = mntget(fs->altrootmnt);
@@ -1205,7 +1211,7 @@ static int fastcall do_path_lookup(int dfd, const char *name,
 		nd->mnt = mntget(fs->rootmnt);
 		nd->dentry = dget(fs->root);
 		read_unlock(&fs->lock);
-	} else if (dfd == AT_FDCWD) {
+	} else if (dfd == AT_FDCWD) {//或者使用当前工作目录作为起点
 		read_lock(&fs->lock);
 		nd->mnt = mntget(fs->pwdmnt);
 		nd->dentry = dget(fs->pwd);

@@ -15,11 +15,11 @@
  * nesting etc..
  */
 struct resource {
-	resource_size_t start;
+	resource_size_t start;//指一般性的区域
 	resource_size_t end;
-	const char *name;
-	unsigned long flags;
-	struct resource *parent, *sibling, *child;
+	const char *name;//资源名称
+	unsigned long flags;//准确地描述资源及其当前状态
+	struct resource *parent, *sibling, *child;//建立树型层次结构
 };
 
 struct resource_list {

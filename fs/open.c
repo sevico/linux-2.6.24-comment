@@ -759,6 +759,7 @@ static struct file *__dentry_open(struct dentry *dentry, struct vfsmount *mnt,
 	f->f_pos = 0;
 	//把 file 对象的f_op设置为 inode对象中的i_fop
 	f->f_op = fops_get(inode->i_fop);
+	//将新创建的file实例放置到超级块的s_files链表上
 	file_move(f, &inode->i_sb->s_files);
 
 	error = security_dentry_open(f);

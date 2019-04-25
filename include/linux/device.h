@@ -90,7 +90,9 @@ struct bus_type {
 	 * 在为用户空间产生热插拨事件前，这个方法允许总线添加环境变量。
 	 */
 	int		(*uevent)(struct device *dev, struct kobj_uevent_env *env);
+	//检查设备在系统中是否真正存中
 	int		(*probe)(struct device * dev);
+	//删除驱动程序与设备之间的关联
 	int		(*remove)(struct device * dev);
 	void		(*shutdown)(struct device * dev);
 		/**
@@ -463,7 +465,7 @@ struct device {
 	 */
 	struct klist		klist_children;
 	struct klist_node	knode_parent;		/* node in sibling list */
-	struct klist_node	knode_driver;
+	struct klist_node	knode_driver;//因为一个设备驱动程序能够服务多个设备，该链表元素用于将这些设备连接起来
 	struct klist_node	knode_bus;
 		/**
 	 * 指向父设备的指针

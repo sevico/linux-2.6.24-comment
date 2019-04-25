@@ -224,17 +224,14 @@ struct request {
 	*/
 
 	struct list_head queuelist;
-	/**
-	 * 请求标志
-	 */
+	//连接到完成链表
 	struct list_head donelist;
-	/**
-	 * 指向包含请求的请求队列描述符指针。
-	 */
+	//指向请求所属的请求队列
 	struct request_queue *q;
+	//请求可用于向设备传送控制命令
+	unsigned int cmd_flags;//_REQ_RW特别重要，因为它指出了数据传输的方向。如果该比特位置位，则将数据写入设备； 否则，从设备读取数据
+	enum rq_cmd_type_bits cmd_type;//通常为REQ_TYPE_FS：表示文件系统请求
 
-	unsigned int cmd_flags;
-	enum rq_cmd_type_bits cmd_type;
 
 	/* Maintain bio traversal state for part by part I/O submission.
 	 * hard_* are block layer internals, no driver should touch them!
@@ -242,6 +239,9 @@ struct request {
 	/**
 	 * 开始扇区号。
 	 */
+	//hard_sector、hard_cur_sectors和hard_nr_sectors与结构中没有hard_前缀的对应成员语义相同，
+	//但涉及的是实际硬件而非虚拟设备。通常两组变量的值相同，但在使用RAID或逻辑卷管理器（Logical Volume Manager）时可能会有差别，
+	//因为这些机制实际上是将几个物理设备合并为一个虚拟设备。
 	sector_t sector;		/* next sector to submit */
 	/**
 	 * 要传送的下一个扇区号。
@@ -435,9 +435,10 @@ struct request_queue
 	/*
 	 * Together with queue_head for cacheline sharing
 	 */
+	//是该数据结构的主要成员，是一个表头，用于构建I/O请求的双链表。链表每个元素的数据类型都是request，代表向块设备读取数据的一个请求
 	struct list_head	queue_head;
 	struct request		*last_merge;
-	elevator_t		*elevator;
+	elevator_t		*elevator;//电梯调度算法
 
 	/*
 	 * the queue request freelist, one for reads and one for writes
@@ -447,12 +448,15 @@ struct request_queue
 	 */
 	struct request_list	rq;
 
-	request_fn_proc		*request_fn;
-	make_request_fn		*make_request_fn;
-	prep_rq_fn		*prep_rq_fn;
-	unplug_fn		*unplug_fn;
-	merge_bvec_fn		*merge_bvec_fn;
-	prepare_flush_fn	*prepare_flush_fn;
+	request_fn_proc		*request_fn;//每个驱动程序必须亲自实现该函数，该函数是请求队列管理与各个设备的底层功能之间的主要联系
+	make_request_fn		*make_request_fn;//创建新请求。内核对该函数的标准实现向请求链表添加请求
+	prep_rq_fn		*prep_rq_fn;//用于在发送实际的请求之前预备一个请求。
+	unplug_fn		*unplug_fn;//用于拔出一个块设备时调用
+	merge_bvec_fn		*merge_bvec_fn;//确定是否允许向一个现存的请求增加更多数据。由于请求队列的长度通常是 固定的，限制了其中请求的数目，因此内核可使用这种机制来避免可能的问题
+	prepare_flush_fn	*prepare_flush_fn;//在预备刷出队列时，即一次性执行所有带决请求之前调用。在该方法中，设备可以进行必要的清理。
+	//对于大的请求来说，完成请求，即完成所有I/O，可能是一个耗时的过程。
+	//在内核版本2.6.16 开发期间，添加了使用软中断SoftIRQ（有关该机制的更多细节请参见第14章）异步完成请求的特性。
+	//可以通过调用blk_complete_request要求异步完成请求，softirq_done_fn在这种情况下用作回调函数，通知驱动程序请求已经完成。 
 	softirq_done_fn		*softirq_done_fn;
 
 	/*
@@ -486,7 +490,7 @@ struct request_queue
 	/*
 	 * various queue flags, see QUEUE_* below
 	 */
-	unsigned long		queue_flags;
+	unsigned long		queue_flags;//控制队列的内部状态
 
 	/*
 	 * protects queue structures from reentrancy. ->__queue_lock should
@@ -504,16 +508,21 @@ struct request_queue
 	/*
 	 * queue settings
 	 */
+	//请求的最大数目
 	unsigned long		nr_requests;	/* Max # of requests */
 	unsigned int		nr_congestion_on;
 	unsigned int		nr_congestion_off;
 	unsigned int		nr_batching;
-
+	//指定设备在单个请求中可以处理的扇区的最大数目。长度单位是具体设备的扇区长度
 	unsigned int		max_sectors;
 	unsigned int		max_hw_sectors;
+	//指定用于运输不连续数据的分散—聚集请求中，不连续的段的大数目
 	unsigned short		max_phys_segments;
+	//与max_phys_segments相同，但考虑了（可能的）I/O MMU所进行的重新映射。
 	unsigned short		max_hw_segments;
+	//指定了设备的物理扇区长度
 	unsigned short		hardsect_size;
+	//单个请求的最大段长度（按字节计算）
 	unsigned int		max_segment_size;
 
 	unsigned long		seg_boundary_mask;
