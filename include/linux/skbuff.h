@@ -168,9 +168,9 @@ struct skb_shared_info {
 
 
 enum {
-	SKB_FCLONE_UNAVAILABLE,
-	SKB_FCLONE_ORIG,
-	SKB_FCLONE_CLONE,
+	SKB_FCLONE_UNAVAILABLE,//SKB 末被克降
+	SKB_FCLONE_ORIG,//在 skbuff_clone_cache 分配的父 SKB，可以被克降
+	SKB_FCLONE_CLONE,//在 skbuff_clone_cache 分配的子 SKB，从父 SKB 克隆得到的
 };
 
 enum {
