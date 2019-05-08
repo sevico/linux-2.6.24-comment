@@ -765,6 +765,7 @@ static inline int ip_ufo_append_data(struct sock *sk,
  *
  *	LATER: length must be adjusted by pad at tail, when it is required.
  */
+ //将接收到的大数据包分成多个小于或等于MTU的SKB，为网络层要实现的IP分片做准备
 int ip_append_data(struct sock *sk,
 		   int getfrag(void *from, char *to, int offset, int len,
 			       int odd, struct sk_buff *skb),
@@ -784,10 +785,11 @@ int ip_append_data(struct sock *sk,
 	int offset = 0;
 	unsigned int maxfraglen, fragheaderlen;
 	int csummode = CHECKSUM_NONE;
-
+	//如果有MSG_PROBE标识，实际上并不会进行真正的数据传输
+	//而是进行路径MTU探测
 	if (flags&MSG_PROBE)
 		return 0;
-
+	//如果传输控制块的输出队列为空，则需要为传输控制块设置一些临时信息
 	if (skb_queue_empty(&sk->sk_write_queue)) {
 		/*
 		 * setup for corking.
@@ -815,7 +817,7 @@ int ip_append_data(struct sock *sk,
 			length += exthdrlen;
 			transhdrlen += exthdrlen;
 		}
-	} else {
+	} else {//如果传输控制块的输出队列不为空，则使用上次的输出路由，IP选项以及分片长度
 		rt = inet->cork.rt;
 		if (inet->cork.flags & IPCORK_OPT)
 			opt = inet->cork.opt;
@@ -824,9 +826,11 @@ int ip_append_data(struct sock *sk,
 		exthdrlen = 0;
 		mtu = inet->cork.fragsize;
 	}
+	//获取链路层首部以及IP首部(包括选项)的长度
 	hh_len = LL_RESERVED_SPACE(rt->u.dst.dev);
 
 	fragheaderlen = sizeof(struct iphdr) + (opt ? opt->optlen : 0);
+	//Ip数据包需4字节对齐，为加速计算直接将IP数据报的数据依据当前MTU 8字节对齐，然后重新得到用于分片的长度
 	maxfraglen = ((mtu - fragheaderlen) & ~7) + fragheaderlen;
 
 	if (inet->cork.length + length > 0xFFFF - fragheaderlen) {
@@ -862,10 +866,10 @@ int ip_append_data(struct sock *sk,
 	 * each of segments is IP fragment ready for sending to network after
 	 * adding appropriate IP header.
 	 */
-
+	//获取输出队列末尾的SKB，如果获取不到，说明输出队列为空，则需分配一个新的SKB用于复制数据
 	if ((skb = skb_peek_tail(&sk->sk_write_queue)) == NULL)
 		goto alloc_new_skb;
-
+	//循环处理待输出数据，直至所有的数据都处理完成
 	while (length > 0) {
 		/* Check if the remaining data fits into current packet. */
 		copy = mtu - skb->len;
