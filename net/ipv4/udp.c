@@ -463,6 +463,7 @@ static void udp4_hwcsum_outgoing(struct sock *sk, struct sk_buff *skb,
 /*
  * Push out all pending data as one UDP datagram. Socket is locked.
  */
+ //如注释：该函数会将当前所有pending的数据包作为一个UDP数据报发送出去
 static int udp_push_pending_frames(struct sock *sk)
 {
 	struct udp_sock  *up = udp_sk(sk);
@@ -474,18 +475,22 @@ static int udp_push_pending_frames(struct sock *sk)
 	__wsum csum = 0;
 
 	/* Grab the skbuff where UDP header space exists. */
+	//获取发送队列中第一个SKB的指针，注意是获取，并不会将该skb从发送队列上摘除
+	//发送队列中此时可能有多个skb，每个skb携带的数据为一个MTU大小，这是由前面的
+	//ip_append_data()处理好的，方面IP层的后续处理
 	if ((skb = skb_peek(&sk->sk_write_queue)) == NULL)
 		goto out;
 
 	/*
 	 * Create a UDP header
 	 */
+	 //组装UDP首部各个字段
 	uh = udp_hdr(skb);
 	uh->source = fl->fl_ip_sport;
 	uh->dest = fl->fl_ip_dport;
 	uh->len = htons(up->len);
 	uh->check = 0;
-
+	//计算数据包的校验和
 	if (up->pcflag)  				 /*     UDP-Lite      */
 		csum  = udplite_csum_outgoing(sk, skb);
 
@@ -503,14 +508,20 @@ static int udp_push_pending_frames(struct sock *sk)
 		csum = udp_csum_outgoing(sk, skb);
 
 	/* add protocol-dependent pseudo-header */
+	//伪首部校验和计算
 	uh->check = csum_tcpudp_magic(fl->fl4_src, fl->fl4_dst, up->len,
 				      sk->sk_protocol, csum             );
 	if (uh->check == 0)
 		uh->check = CSUM_MANGLED_0;
 
 send:
+	//调用IP协议的push()函数将数据包组织成一个IP报文发送出去。这些数据包虽然可能会由多个片段组成，
+		//而且每个片段都达到了MTU大小，但是它们公用一个ipid，表明它们属于同一个IP报文，只是分段了而已
+		//该函数在IP协议的发送部分再分析
+
 	err = ip_push_pending_frames(sk);
 out:
+	//无论成功与否，发送队列中不再有数据，所以清空len和pending标记
 	up->len = 0;
 	up->pending = 0;
 	if (!err)
@@ -532,67 +543,93 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	__be16 dport;
 	u8  tos;
 	int err, is_udplite = up->pcflag;
+	//corkreq表示是否需要等待其它数据，将这些报文组合成一个UDP报文
 	int corkreq = up->corkflag || msg->msg_flags&MSG_MORE;
 	int (*getfrag)(void *, char *, int, int, int, struct sk_buff *);
-
+	//UDP首部长度字段只有16bit，所以一个数据包大小不能超过0xFFFF
 	if (len > 0xFFFF)
 		return -EMSGSIZE;
 
 	/*
 	 *	Check the flags.
 	 */
-
+	//UDP不支持带外数据，所以不能设置MSG_OOB
 	if (msg->msg_flags&MSG_OOB)	/* Mirror BSD error message compatibility */
 		return -EOPNOTSUPP;
 
 	ipc.opt = NULL;
-
+	//pending标记和前面说的MSG_MORE标记有关。当设置MSG_MORE标记的数据到达时，UDP会将待
+	//发送的数据暂存到发送队列中，这些数据就处于pending状态，等应用指定要发送数据时，会将
+	//数据发送给IP，然后清空发送队列，这时退出pending状态。
 	if (up->pending) {
 		/*
 		 * There are pending frames.
 		 * The socket lock must be held while it's corked.
 		 */
 		lock_sock(sk);
+		/*
+		 * 再判断一次是因为了lock_sock()可能会导致进程休眠。内核中有许多地方使用这样的方式编程。
+		 * 因为大部分情况下pending标记是没有的，这样的话就不会进入到这里，这种编程方式就可以省掉
+		 * 一个lock_sock(比较复杂、耗时)电泳，仅当设置了pending后，才加锁并再检查一次，这样就
+		 * 能在大部分情况下不用锁，少数情况下加锁，这种方法是内核中常用的提升效率的策略。
+		 */
 		if (likely(up->pending)) {
+			//pengding的值只能是0或者AF_INET
 			if (unlikely(up->pending != AF_INET)) {
 				release_sock(sk);
 				return -EINVAL;
 			}
+			//因为已经有挂起的数据，所以可以不用再次进行地址、路由的选择，直接跳转到do_append_data
+			//处追加数据即可。因为如果有pending标记，下面需要做的工作在处理第一个数据包时已经处理过了
 			goto do_append_data;
 		}
 		release_sock(sk);
 	}
+	//ulen表示要发送的UDP报文长度，这里在数据长度的基础上再加上UDP首部长度8个字节
 	ulen += sizeof(struct udphdr);
 
 	/*
 	 *	Get and verify the address.
 	 */
+	 //下面这段逻辑是确定目的端IP地址和端口号
+
+	//msg_name不为空，表示调用系统调用时用户空间程序指定了目的端地址信息，这种
+	//情况下校验指定参数并设置地址族、目的地址和目的端口
 	if (msg->msg_name) {
+		//目的地址长度必须是IPv4地址
 		struct sockaddr_in * usin = (struct sockaddr_in*)msg->msg_name;
 		if (msg->msg_namelen < sizeof(*usin))
 			return -EINVAL;
+		//地址族必须是AF_INET或者AF_UNSPEC
 		if (usin->sin_family != AF_INET) {
 			if (usin->sin_family != AF_UNSPEC)
 				return -EAFNOSUPPORT;
 		}
-
+		//目的IP和目的端口
 		daddr = usin->sin_addr.s_addr;
 		dport = usin->sin_port;
+		//目的端口不能为0
 		if (dport == 0)
 			return -EINVAL;
 	} else {
+	//调用发送相关系统调用时没有指定目的地址情况处理
+	//如果在该UDP套接字上没有执行过connect()系统调用，所以内核不知道要将该数据包发给谁，
+		//这种情况返回需要建立连接的错误码
 		if (sk->sk_state != TCP_ESTABLISHED)
 			return -EDESTADDRREQ;
+		//应用程序有调用过connect()，这种情况下目的端地址信息会被保存在inet_sock结构中
 		daddr = inet->daddr;
 		dport = inet->dport;
 		/* Open fast path for connected socket.
 		   Route will not be used, if at least one option is set.
 		 */
+		 //由于已经连接过，所以连接标记置1
 		connected = 1;
 	}
 	ipc.addr = inet->saddr;
 
 	ipc.oif = sk->sk_bound_dev_if;
+	//如果发送数据时指定了控制信息(sendmsg()系统调用)，用的比较少，先忽略
 	if (msg->msg_controllen) {
 		err = ip_cmsg_send(msg, &ipc);
 		if (err)
@@ -606,7 +643,7 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 
 	saddr = ipc.addr;
 	ipc.addr = faddr = daddr;
-
+	//源路由选项相关处理，先忽略
 	if (ipc.opt && ipc.opt->srr) {
 		if (!daddr)
 			return -EINVAL;
@@ -614,13 +651,18 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		connected = 0;
 	}
 	tos = RT_TOS(inet->tos);
+	/*
+	 * 如果设置了SOCK_LOCALROUTE或者发送时设置了MSG_DONTROUTE标记，再或者IP选项中存在严格源站选路
+	 * 选项，则说明目的地址或下一跳必然位于本地子网中。此时需要设置tos中的RTO_ONLINK标记，表示
+	 * 后续查找路由时与目的地直连。
+	 */
 	if (sock_flag(sk, SOCK_LOCALROUTE) ||
 	    (msg->msg_flags & MSG_DONTROUTE) ||
 	    (ipc.opt && ipc.opt->is_strictroute)) {
 		tos |= RTO_ONLINK;
 		connected = 0;
 	}
-
+	//多播地址处理，忽略
 	if (MULTICAST(daddr)) {
 		if (!ipc.oif)
 			ipc.oif = inet->mc_index;
@@ -628,11 +670,12 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 			saddr = inet->mc_addr;
 		connected = 0;
 	}
-
+	//对于已经连接的情况，之前一定已经查询过路由了，这里需要检查该路由是否依然有效
 	if (connected)
 		rt = (struct rtable*)sk_dst_check(sk, 0);
-
+	//如果需要，这里查询路由表
 	if (rt == NULL) {
+		//查询条件有：输出设备接口、源和目的IP、TOS、源和目的端口
 		struct flowi fl = { .oif = ipc.oif,
 				    .nl_u = { .ip4_u =
 					      { .daddr = faddr,
@@ -643,7 +686,9 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 					       { .sport = inet->sport,
 						 .dport = dport } } };
 		security_sk_classify_flow(sk, &fl);
+		//查询路由表
 		err = ip_route_output_flow(&rt, &fl, sk, 1);
+		//路由查询失败、发送失败
 		if (err) {
 			if (err == -ENETUNREACH)
 				IP_INC_STATS_BH(IPSTATS_MIB_OUTNOROUTES);
@@ -651,13 +696,15 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		}
 
 		err = -EACCES;
+		//路由结果为广播但是该socket不允许广播，发送失败
 		if ((rt->rt_flags & RTCF_BROADCAST) &&
 		    !sock_flag(sk, SOCK_BROADCAST))
 			goto out;
+		//如果是已连接套接字，那么将路由信息设置到套接字，下次检查即可，不用重复查询，见上文
 		if (connected)
 			sk_dst_set(sk, dst_clone(&rt->u.dst));
 	}
-
+	//MSG_CONFIRM表示该报文要求接收端的数据链路层进行确认，用的很少，忽略
 	if (msg->msg_flags&MSG_CONFIRM)
 		goto do_confirm;
 back_from_confirm:
@@ -667,6 +714,7 @@ back_from_confirm:
 		daddr = ipc.addr = rt->rt_dst;
 
 	lock_sock(sk);
+	//这种情况不应该出现
 	if (unlikely(up->pending)) {
 		/* The socket is already corked while preparing it. */
 		/* ... which is an evident application bug. --ANK */
@@ -679,30 +727,48 @@ back_from_confirm:
 	/*
 	 *	Now cork the socket to pend data.
 	 */
+	 //将一些重要信息暂存到inet->cork中，以备可能存在的后续发送过程使用
 	inet->cork.fl.fl4_dst = daddr;
 	inet->cork.fl.fl_ip_dport = dport;
 	inet->cork.fl.fl4_src = saddr;
 	inet->cork.fl.fl_ip_sport = inet->sport;
+	//下面就要将待发送数据放入发送队列了，先设置pending标记
 	up->pending = AF_INET;
 
 do_append_data:
+	//up->len变量记录了当前该传输控制块上已经pending的字节数，这里将ulen累加到该变量上
 	up->len += ulen;
+	//根据是否为UDPlite选用不同的拷贝函数，这两个协议公用一套函数，但是因为校验和计算方法
+	//有差别，而且可能需要在拷贝过程中顺便计算校验和(这样可以避免再次遍历数据)，所以这里需要区分
 	getfrag  =  is_udplite ?  udplite_getfrag : ip_generic_getfrag;
+	//ip_append_data()很重要，而且足够复杂，它属于IP提供给上层协议使用的一个发送接口，目前
+	//主要有UDP和raw套接字使用，该函数后面会单独分析，这里只需要知道如下几点：
+	//1. 该函数将要发送的数据按照MTU大小分割成若干个方便IP处理的片段，每个片段一个skb；并且这些
+	//   skb会放入到套接字的发送缓冲区中；
+	//2. 该函数只是组织数据包，并不执行发送动作，如果需要发送，需要由调用者主动调用ip_push_frames()
+	//3. 处理成功返回0，失败返回错误码
 	err = ip_append_data(sk, getfrag, msg->msg_iov, ulen,
 			sizeof(struct udphdr), &ipc, rt,
 			corkreq ? msg->msg_flags|MSG_MORE : msg->msg_flags);
+	//数据包处理失败，将所有数据包清空，见下文
 	if (err)
 		udp_flush_pending_frames(sk);
+	//数据包处理没有问题，并且没有启用MSG_MORE特性，那么直接将发送队列中的数据发送给IP。
+	//对于大多数应用都是走了该分支，即一次写操作对应一个UDP数据包，这种UDP套接字相当于
+	//没有发送缓冲区
 	else if (!corkreq)
 		err = udp_push_pending_frames(sk);
+	//这种情况不大可能发生，除非应用程序指定要发送的数据长度为0
 	else if (unlikely(skb_queue_empty(&sk->sk_write_queue)))
 		up->pending = 0;
 	release_sock(sk);
 
 out:
+	//释放对路由缓存的引用
 	ip_rt_put(rt);
 	if (free)
 		kfree(ipc.opt);
+	//处理过程没有错误，返回已发送的字节数
 	if (!err)
 		return len;
 	/*
@@ -718,6 +784,7 @@ out:
 	return err;
 
 do_confirm:
+	//确认处理，用的很少，忽
 	dst_confirm(&rt->u.dst);
 	if (!(msg->msg_flags&MSG_PROBE) || len)
 		goto back_from_confirm;

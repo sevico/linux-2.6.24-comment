@@ -613,12 +613,14 @@ static int ep_poll_callback(wait_queue_t *wait, unsigned mode, int sync, void *k
 {
 	int pwake = 0;
 	unsigned long flags;
+	// 获取wait对应的epitem
 	struct epitem *epi = ep_item_from_wait(wait);
+	// epitem对应的eventpoll结构体
 	struct eventpoll *ep = epi->ep;
 
 	DNPRINTK(3, (KERN_INFO "[%p] eventpoll: poll_callback(%p) epi=%p ep=%p\n",
 		     current, epi->ffd.file, epi, ep));
-
+	// 获取自旋锁，保护ready_list等结构
 	spin_lock_irqsave(&ep->lock, flags);
 
 	/*
@@ -685,6 +687,7 @@ static void ep_ptable_queue_proc(struct file *file, wait_queue_head_t *whead,
 		init_waitqueue_func_entry(&pwq->wait, ep_poll_callback);
 		pwq->whead = whead;
 		pwq->base = epi;
+		// 这边的whead是sk->sk_sleep,将当前的waitqueue链入到socket对应的sleep列表
 		add_wait_queue(whead, &pwq->wait);
 		list_add_tail(&pwq->llink, &epi->pwqlist);
 		epi->nwait++;
@@ -1020,8 +1023,12 @@ retry:
 		 * We need to sleep here, and we will be wake up by
 		 * ep_poll_callback() when events will become available.
 		 */
+		 // 将当前task_struct写入到waitqueue中以便唤醒
+		// wq_entry->func = default_wake_function;
 		init_waitqueue_entry(&wait, current);
+		// WQ_FLAG_EXCLUSIVE，排他性唤醒，配合SO_REUSEPORT从而解决accept惊群问题
 		wait.flags |= WQ_FLAG_EXCLUSIVE;
+	// 链入到ep的waitqueue中
 		__add_wait_queue(&ep->wq, &wait);
 
 		for (;;) {
@@ -1030,18 +1037,22 @@ retry:
 			 * a wakeup in between. That's why we set the task state
 			 * to TASK_INTERRUPTIBLE before doing the checks.
 			 */
+			 // 设置当前进程状态为可打断
 			set_current_state(TASK_INTERRUPTIBLE);
 			if (!list_empty(&ep->rdllist) || !jtimeout)
 				break;
+			// 检查当前线程是否有信号要处理，有则返回-EINTR
 			if (signal_pending(current)) {
 				res = -EINTR;
 				break;
 			}
 
 			spin_unlock_irqrestore(&ep->lock, flags);
+			// schedule调度，让出CPU
 			jtimeout = schedule_timeout(jtimeout);
 			spin_lock_irqsave(&ep->lock, flags);
 		}
+		// 到这里，表明超时或者有事件触发等动作导致进程重新调度
 		__remove_wait_queue(&ep->wq, &wait);
 
 		set_current_state(TASK_RUNNING);

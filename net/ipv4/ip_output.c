@@ -1191,6 +1191,7 @@ error:
 
 static void ip_cork_release(struct inet_sock *inet)
 {
+	//主要是路由和IP选项
 	inet->cork.flags &= ~IPCORK_OPT;
 	kfree(inet->cork.opt);
 	inet->cork.opt = NULL;
@@ -1307,10 +1308,10 @@ error:
 void ip_flush_pending_frames(struct sock *sk)
 {
 	struct sk_buff *skb;
-
+	//删除发送队列中的数据
 	while ((skb = __skb_dequeue_tail(&sk->sk_write_queue)) != NULL)
 		kfree_skb(skb);
-
+	//由于处于pending状态时，inet_sk的cork字段保存了一些缓存信息，所以也需要清除
 	ip_cork_release(inet_sk(sk));
 }
 

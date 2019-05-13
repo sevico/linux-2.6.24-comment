@@ -262,7 +262,11 @@ int ip_local_deliver(struct sk_buff *skb)
 	/*
 	 *	Reassemble IP fragments.
 	 */
-
+	/* 分片重组 */
+	/* 
+        根据(n-1)(mtu-ip头)计算值，第一片的offset=0，其余偏移为1480倍数
+        除最后一片外，其余片标记MF
+    */
 	if (ip_hdr(skb)->frag_off & htons(IP_MF | IP_OFFSET)) {
 		if (ip_defrag(skb, IP_DEFRAG_LOCAL_DELIVER))
 			return 0;

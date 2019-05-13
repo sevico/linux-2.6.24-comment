@@ -241,15 +241,16 @@ static inline struct ipq *ip_find(struct iphdr *iph, u32 user)
 	struct inet_frag_queue *q;
 	struct ip4_create_arg arg;
 	unsigned int hash;
-
+	/* 记录ip头和输入信息 */
 	arg.iph = iph;
 	arg.user = user;
+	/* 通过id，源地址，目的地址，协议计算hash */
 	hash = ipqhashfn(iph->id, iph->saddr, iph->daddr, iph->protocol);
-
+	/* 根据hash值查找或创建队列 */
 	q = inet_frag_find(&ip4_frags, &arg, hash);
 	if (q == NULL)
 		goto out_nomem;
-
+	/* 返回队列q对应的ipq */
 	return container_of(q, struct ipq, q);
 
 out_nomem:
@@ -590,18 +591,20 @@ int ip_defrag(struct sk_buff *skb, u32 user)
 		ip_evictor();
 
 	/* Lookup (or create) queue header */
+	/* 查找或创建分片队列 */
 	if ((qp = ip_find(ip_hdr(skb), user)) != NULL) {
+		/* 分片队列存在 */
 		int ret;
 
 		spin_lock(&qp->q.lock);
-
+		/* 分片加入到队列中，能重组则重组 */
 		ret = ip_frag_queue(qp, skb);
 
 		spin_unlock(&qp->q.lock);
 		ipq_put(qp);
 		return ret;
 	}
-
+	/* 无法创建新的ip分片队列，内存不足 */
 	IP_INC_STATS_BH(IPSTATS_MIB_REASMFAILS);
 	kfree_skb(skb);
 	return -ENOMEM;
