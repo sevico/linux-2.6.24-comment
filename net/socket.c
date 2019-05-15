@@ -1075,6 +1075,9 @@ call_kill:
 	}
 	return 0;
 }
+/*
+ * @kern: 如果是kernel自己创建一个套接字，那么置标记为1；否则是用户空间创建套接字，设置为0
+ */
 
 static int __sock_create(struct net *net, int family, int type, int protocol,
 			 struct socket **res, int kern)
@@ -1086,6 +1089,7 @@ static int __sock_create(struct net *net, int family, int type, int protocol,
 	/*
 	 *      Check protocol is in range
 	 */
+	 //检查地址族参数和协议类型参数，使得它们不超过当期内核支持的最大值
 	if (family < 0 || family >= NPROTO)
 		return -EAFNOSUPPORT;
 	if (type < 0 || type >= SOCK_MAX)
@@ -1096,6 +1100,9 @@ static int __sock_create(struct net *net, int family, int type, int protocol,
 	   This uglymoron is moved from INET layer to here to avoid
 	   deadlock in module load.
 	 */
+	 //如果要基于数据链路层收发数据，那么应该使用socket(PF_PACKET, SOCK_RAW|SOCK_DGRAM, protocol)
+	//来创建套接字。但是老版本内核是使用socket(PF_IENT, SOCK_PACKET, protocol)，这里为了向后兼容，
+	//强制修改地址族为PF_PACKET
 	if (family == PF_INET && type == SOCK_PACKET) {
 		static int warned;
 		if (!warned) {
@@ -1105,7 +1112,7 @@ static int __sock_create(struct net *net, int family, int type, int protocol,
 		}
 		family = PF_PACKET;
 	}
-
+	//SELinux相关的安全检查
 	err = security_socket_create(family, type, protocol, kern);
 	if (err)
 		return err;
@@ -1115,6 +1122,8 @@ static int __sock_create(struct net *net, int family, int type, int protocol,
 	 *	the protocol is 0, the family is instructed to select an appropriate
 	 *	default.
 	 */
+	 //分配套接口层套接字struct socket.该函数涉及文件系统INODE相关内容，比较复杂，
+	//但是不影响协议栈分析，这里忽略不再深入探究
 	sock = sock_alloc();
 	if (!sock) {
 		if (net_ratelimit())
@@ -1122,8 +1131,10 @@ static int __sock_create(struct net *net, int family, int type, int protocol,
 		return -ENFILE;	/* Not exactly a match, but its the
 				   closest posix thing */
 	}
-
+	//协议类型记录到struct socket的type字段中
 	sock->type = type;
+	//如果协议相关的模块尚未加载进内核，则尝试加载，涉及内核模块可动态加载特性，目前一般来讲，
+	//内核支持的协议族都是直接编译到内核中的，所以这种情况可以忽略，暂不深究
 
 #if defined(CONFIG_KMOD)
 	/* Attempt to load a protocol module if the find failed.
@@ -1135,6 +1146,8 @@ static int __sock_create(struct net *net, int family, int type, int protocol,
 	if (net_families[family] == NULL)
 		request_module("net-pf-%d", family);
 #endif
+	//从系统全局数组net_families中获取指定协议族定义的struct net_proto_family结构，每个
+	//协议族在初始化过程中都会向系统注册一个这样的结构，IPv4在inet_init()中完成注册
 
 	rcu_read_lock();
 	pf = rcu_dereference(net_families[family]);
@@ -1151,7 +1164,7 @@ static int __sock_create(struct net *net, int family, int type, int protocol,
 
 	/* Now protected by module ref count */
 	rcu_read_unlock();
-
+	//调用协议族提供的create()函数完成协议族相关的套接字创建工作，对于AF_INET，该函数为inet_create()
 	err = pf->create(net, sock, protocol);
 	if (err < 0)
 		goto out_module_put;
@@ -1191,6 +1204,7 @@ out_release:
 
 int sock_create(int family, int type, int protocol, struct socket **res)
 {
+	//socket与文件描述符映射失败时调用sock_release()关闭socket
 	return __sock_create(current->nsproxy->net_ns, family, type, protocol, res, 0);
 }
 
@@ -1198,16 +1212,19 @@ int sock_create_kern(int family, int type, int protocol, struct socket **res)
 {
 	return __sock_create(&init_net, family, type, protocol, res, 1);
 }
+//三个入参就是socket()系统调用的三个入参
 
 asmlinkage long sys_socket(int family, int type, int protocol)
 {
 	int retval;
 	struct socket *sock;
-
+	//核心操作，创建一个struct socket，该结构是套接字在套接口层的实例，在创建该
+	//结构过程中，相关的传输层控制块也会被创建
 	retval = sock_create(family, type, protocol, &sock);
 	if (retval < 0)
 		goto out;
-
+	//将struct socket结构与文件系统描述符绑定，实际上就是为该套接字分配一个文件
+	//描述符，使得应用程序可以使用标准的文件系统调用接口操作套接字
 	retval = sock_map_fd(sock);
 	if (retval < 0)
 		goto out_release;
@@ -1217,6 +1234,7 @@ out:
 	return retval;
 
 out_release:
+	//socket与文件描述符映射失败时调用sock_release()关闭socket
 	sock_release(sock);
 	return retval;
 }

@@ -252,17 +252,20 @@ static int inet_create(struct net *net, struct socket *sock, int protocol)
 	char answer_no_check;
 	int try_loading_module = 0;
 	int err;
-
+	//网络命名空间校验
 	if (net != &init_net)
 		return -EAFNOSUPPORT;
-
+	//对于TCP&UDP，如果inet_ehash_seret变量未初始化，则调用build_ehash_secret()进行初始化。目前
+	//还没有看到该变量的作用，但实际上build_ehash_seret()实际上就是生成一个非零随机数而已
 	if (sock->type != SOCK_RAW &&
 	    sock->type != SOCK_DGRAM &&
 	    !inet_ehash_secret)
 		build_ehash_secret();
-
+	//将套接字状态设置为未连接状态，注意这里的状态仅仅是套接口层记录的socket状态，
+	//并非传输层的状态，传输层状态由传输层控制块记录
 	sock->state = SS_UNCONNECTED;
-
+	//以参数type(套接字类型)为索引，遍历数组inetsw[sock->type]，寻找匹配的协议。
+	//IPv4协议族将所有支持的协议保存到数组inetsw中，相同类型的协议组织成一个双链表
 	/* Look for the requested type/protocol pair. */
 	answer = NULL;
 lookup_protocol:
@@ -272,22 +275,26 @@ lookup_protocol:
 		answer = list_entry(p, struct inet_protosw, list);
 
 		/* Check the non-wild match. */
+		//在指定类型的协议中进行精确匹配，所谓精确匹配是指socket()的protocol参数不为0(即IPPROTO_IP)
 		if (protocol == answer->protocol) {
 			if (protocol != IPPROTO_IP)
 				break;
 		} else {
+		//进行模糊模糊匹配，分为两种情况：
+			//1. 应用程序指定的协议为通配协议即0，这时直接选用指定类型协议链表中的第一个协议
 			/* Check for the two wild cases. */
 			if (IPPROTO_IP == protocol) {
 				protocol = answer->protocol;
 				break;
 			}
+			//2.应用程序指定的是具体的协议，但是指定类型协议链表中有通配协议，也可以匹配
 			if (IPPROTO_IP == answer->protocol)
 				break;
 		}
 		err = -EPROTONOSUPPORT;
 		answer = NULL;
 	}
-
+	//有些协议是以模块的形式实现的，如果第一遍没有找到符合要求的协议，则尝试加载相应的模块后重新进行匹配
 	if (unlikely(answer == NULL)) {
 		if (try_loading_module < 2) {
 			rcu_read_unlock();
@@ -309,11 +316,11 @@ lookup_protocol:
 		} else
 			goto out_rcu_unlock;
 	}
-
+	//对于指定了某些特殊权限才能使用的协议，这里检查创建程序是否有相应的权限
 	err = -EPERM;
 	if (answer->capability > 0 && !capable(answer->capability))
 		goto out_rcu_unlock;
-
+	//将协议族提供给套接口层的操作函数集ops记录到套接字结构中
 	sock->ops = answer->ops;
 	answer_prot = answer->prot;
 	answer_no_check = answer->no_check;
@@ -321,40 +328,43 @@ lookup_protocol:
 	rcu_read_unlock();
 
 	BUG_TRAP(answer_prot->slab != NULL);
-
+	//根据传输层协议结构answer_prot创建相应的传输层控制块并进行一定的初始化，见下文分析
 	err = -ENOBUFS;
 	sk = sk_alloc(net, PF_INET, GFP_KERNEL, answer_prot);
 	if (sk == NULL)
 		goto out;
-
+	//将是否需要校验标记记录到传输控制块中
 	err = 0;
 	sk->sk_no_check = answer_no_check;
+	//如果传输层协议指定了地址复用标记，则将传输控制块中的sk_reuse字段置1，表示可以进行地址和端口复用。
+	//TCP和UDP默认均未设置该标记
 	if (INET_PROTOSW_REUSE & answer_flags)
 		sk->sk_reuse = 1;
-
+	//根据是否有INET_PROTOSW_ICSK标记设置传输控制块的is_icsk变量，该标记表示该协议是否是面向连接的协议，
+	//显然，TCP会设置该标记，UDP不会
 	inet = inet_sk(sk);
 	inet->is_icsk = (INET_PROTOSW_ICSK & answer_flags) != 0;
-
+	//RAW类型套接字相关处理，暂时忽略
 	if (SOCK_RAW == sock->type) {
 		inet->num = protocol;
 		if (IPPROTO_RAW == protocol)
 			inet->hdrincl = 1;
 	}
-
+	//根据系统参数no_pmtu_disc设置传输控制块是否支持路径MTU发现机制
 	if (ipv4_config.no_pmtu_disc)
 		inet->pmtudisc = IP_PMTUDISC_DONT;
 	else
 		inet->pmtudisc = IP_PMTUDISC_WANT;
-
+	//进一步初始化通用传输控制块相关成员
 	inet->id = 0;
-
+	//初始化通用结构struct sock的一些成员
 	sock_init_data(sock, sk);
-
+	//struct sock结构的析构函数
 	sk->sk_destruct	   = inet_sock_destruct;
 	sk->sk_family	   = PF_INET;
 	sk->sk_protocol	   = protocol;
 	sk->sk_backlog_rcv = sk->sk_prot->backlog_rcv;
-
+	//传输控制块中组播相关成员的初始化
 	inet->uc_ttl	= -1;
 	inet->mc_loop	= 1;
 	inet->mc_ttl	= 1;
@@ -362,6 +372,9 @@ lookup_protocol:
 	inet->mc_list	= NULL;
 
 	sk_refcnt_debug_inc(sk);
+	//如果传输控制块中设置了端口号，则调用传输层的hash()接口将该端口信息加入到传输层的管理结构中。
+	//TCP和UDP不会有这种行为，它们的端口绑定都是在socket()调用之后显式或者隐式绑定的。端口的绑定
+	//在bind()系统调用中再仔细研究
 
 	if (inet->num) {
 		/* It assumes that any protocol which allows
@@ -373,7 +386,8 @@ lookup_protocol:
 		/* Add to protocol hash chains. */
 		sk->sk_prot->hash(sk);
 	}
-
+	//如果传输层协议提供了init()接口，则调用它完成传输层特有的初始化。对于TCP，
+	//该函数为tcp_v4_init_sock(),UDP没有定义该接口
 	if (sk->sk_prot->init) {
 		err = sk->sk_prot->init(sk);
 		if (err)
@@ -907,12 +921,15 @@ static struct net_proto_family inet_family_ops = {
 /* Upon startup we insert all the elements in inetsw_array[] into
  * the linked list inetsw.
  */
+ //AF_INET协议族定义了其支持如下类型的套接字
 static struct inet_protosw inetsw_array[] =
 {
 	{
 		.type =       SOCK_STREAM,
 		.protocol =   IPPROTO_TCP,
+		//TCP协议特化的操作
 		.prot =       &tcp_prot,
+		//AF_INET协议族对于流类型套接字的通用操作
 		.ops =        &inet_stream_ops,
 		.capability = -1,
 		.no_check =   0,
@@ -923,7 +940,9 @@ static struct inet_protosw inetsw_array[] =
 	{
 		.type =       SOCK_DGRAM,
 		.protocol =   IPPROTO_UDP,
+		//UDP协议特有的操作
 		.prot =       &udp_prot,
+		//AF_INET协议族对于数据报类型套接字的通用操作
 		.ops =        &inet_dgram_ops,
 		.capability = -1,
 		.no_check =   UDP_CSUM_DEFAULT,
@@ -933,6 +952,7 @@ static struct inet_protosw inetsw_array[] =
 
        {
 	       .type =       SOCK_RAW,
+		   	//RAW套接字比较特殊，这种套接字跨过了传输层，直接给予网络层IP编程
 	       .protocol =   IPPROTO_IP,	/* wild card */
 	       .prot =       &raw_prot,
 	       .ops =        &inet_sockraw_ops,
@@ -1397,7 +1417,7 @@ static int __init inet_init(void)
 	/* Register the socket-side information for inet_create. */
 	for (r = &inetsw[0]; r < &inetsw[SOCK_MAX]; ++r)
 		INIT_LIST_HEAD(r);
-
+	//协议族初始化过程中将支持的三个套接字添加到AF_INET协议族维护的全局变量inetsw数组中
 	for (q = inetsw_array; q < &inetsw_array[INETSW_ARRAY_LEN]; ++q)
 		inet_register_protosw(q);
 

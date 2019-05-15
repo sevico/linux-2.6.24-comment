@@ -877,6 +877,8 @@ static struct sock *sk_prot_alloc(struct proto *prot, gfp_t priority,
 	struct kmem_cache *slab;
 
 	slab = prot->slab;
+	//如果传输层协议提供了高速缓存，则从高速缓存中分配传输控制块；
+	//如果没有提供，则调用普通的内存分配函数分配
 	if (slab != NULL)
 		sk = kmem_cache_alloc(slab, priority);
 	else
@@ -930,7 +932,7 @@ struct sock *sk_alloc(struct net *net, int family, gfp_t priority,
 		      struct proto *prot)
 {
 	struct sock *sk;
-
+	//调用sk_prot_alloc()完成传输控制块的分配
 	sk = sk_prot_alloc(prot, priority | __GFP_ZERO, family);
 	if (sk) {
 		sk->sk_family = family;
@@ -938,7 +940,9 @@ struct sock *sk_alloc(struct net *net, int family, gfp_t priority,
 		 * See comment in struct sock definition to understand
 		 * why we need sk_prot_creator -acme
 		 */
+		 //将传输层协议接口记录到传输控制块的sk_prot中
 		sk->sk_prot = sk->sk_prot_creator = prot;
+	//传输控制块中的锁相关初始化
 		sock_lock_init(sk);
 		sk->sk_net = get_net(net);
 	}
@@ -1559,18 +1563,23 @@ EXPORT_SYMBOL(sk_stop_timer);
 
 void sock_init_data(struct socket *sock, struct sock *sk)
 {
+	//初始化接收队列
 	skb_queue_head_init(&sk->sk_receive_queue);
+	//初始化发送队列
 	skb_queue_head_init(&sk->sk_write_queue);
+	//初始化错误队列
 	skb_queue_head_init(&sk->sk_error_queue);
 #ifdef CONFIG_NET_DMA
 	skb_queue_head_init(&sk->sk_async_wait_queue);
 #endif
-
+	//发送指针置空，表示当前没有任何数据要发送
 	sk->sk_send_head	=	NULL;
 
 	init_timer(&sk->sk_timer);
 
 	sk->sk_allocation	=	GFP_KERNEL;
+	//初始化读写缓冲区上限为系统默认值（可以通过SO_SNDBUF/SO_RECVBUF修改，如果不修改，三次握手成功之后
+	//系统还会执行一次调整）
 	sk->sk_rcvbuf		=	sysctl_rmem_default;
 	sk->sk_sndbuf		=	sysctl_wmem_default;
 	sk->sk_state		=	TCP_CLOSE;
