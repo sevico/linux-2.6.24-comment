@@ -586,6 +586,7 @@ struct net_device
 	/* Protocol specific pointers */
 	
 	void 			*atalk_ptr;	/* AppleTalk link 	*/
+	//in_device类型
 	void			*ip_ptr;	/* IPv4 specific data	*/  
 	void                    *dn_ptr;        /* DECnet specific data */
 	void                    *ip6_ptr;       /* IPv6 specific data */

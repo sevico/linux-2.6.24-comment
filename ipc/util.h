@@ -29,6 +29,7 @@ void msg_exit_ns(struct ipc_namespace *ns);
 void shm_exit_ns(struct ipc_namespace *ns);
 
 struct ipc_ids {
+	//保存了当前使用中IPC对象的数目
 	int in_use;
 	unsigned short seq;
 	unsigned short seq_max;
