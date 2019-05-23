@@ -146,6 +146,7 @@ static inline int ip_route_connect(struct rtable **rp, __be32 dst,
 				   __be16 sport, __be16 dport, struct sock *sk,
 				   int flags)
 {
+	//设置路由查询的索引信息，记录在flowi结构变量中
 	struct flowi fl = { .oif = oif,
 			    .nl_u = { .ip4_u = { .daddr = dst,
 						 .saddr = src,
@@ -157,6 +158,7 @@ static inline int ip_route_connect(struct rtable **rp, __be32 dst,
 
 	int err;
 	if (!dst || !src) {
+		//如果源地址或者目的地址为空，则需要补充这些信息
 		err = __ip_route_output_key(rp, &fl);
 		if (err)
 			return err;
@@ -166,6 +168,7 @@ static inline int ip_route_connect(struct rtable **rp, __be32 dst,
 		*rp = NULL;
 	}
 	security_sk_classify_flow(sk, &fl);
+	//查找路由表，通过rp返回路由表项
 	return ip_route_output_flow(rp, &fl, sk, flags);
 }
 

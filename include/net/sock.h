@@ -201,10 +201,13 @@ struct sock {
 #define sk_net			__sk_common.skc_net
 	unsigned char		sk_shutdown : 2,
 				sk_no_check : 2,
+				//用户锁
 				sk_userlocks : 4;
 	unsigned char		sk_protocol;
 	unsigned short		sk_type;
+	//接收缓冲区长度
 	int			sk_rcvbuf;
+	//套接字保护锁
 	socket_lock_t		sk_lock;
 	/*
 	 * The backlog queue is special, it is always used with
@@ -215,7 +218,9 @@ struct sock {
 		struct sk_buff *head;
 		struct sk_buff *tail;
 	} sk_backlog;
+	//等待队列首部
 	wait_queue_head_t	*sk_sleep;
+	//路由缓存指针
 	struct dst_entry	*sk_dst_cache;
 	struct xfrm_policy	*sk_policy[2];
 	rwlock_t		sk_dst_lock;
