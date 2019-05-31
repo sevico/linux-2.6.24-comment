@@ -172,6 +172,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct sockaddr_in *usin = (struct sockaddr_in *)uaddr;
 	struct rtable *rt;
+	//daddr记录目的地址，nexthop记录下一跳地址
 	__be32 daddr, nexthop;
 	int tmp;
 	int err;
@@ -210,7 +211,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 	if (!inet->saddr)
 		inet->saddr = rt->rt_src;
 	inet->rcv_saddr = inet->saddr;
-
+	//初始化TCP选项
 	if (tp->rx_opt.ts_recent_stamp && inet->daddr != daddr) {
 		/* Reset inherited state */
 		tp->rx_opt.ts_recent	   = 0;
@@ -269,7 +270,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 							   usin->sin_port);
 
 	inet->id = tp->write_seq ^ jiffies;
-
+	//请求建立连接，发送标记了SYN的连接请求包
 	err = tcp_connect(sk);
 	rt = NULL;
 	if (err)
@@ -1575,11 +1576,12 @@ int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
 		TCP_CHECK_TIMER(sk);
 		return 0;
 	}
-
+	//对包头进行校验
 	if (skb->len < tcp_hdrlen(skb) || tcp_checksum_complete(skb))
 		goto csum_err;
 
 	if (sk->sk_state == TCP_LISTEN) {
+		//确认是否等待连接建立，返回套接字
 		struct sock *nsk = tcp_v4_hnd_req(sk, skb);
 		if (!nsk)
 			goto discard;
@@ -1602,6 +1604,7 @@ int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
 	return 0;
 
 reset:
+	//发送RST包
 	tcp_v4_send_reset(rsk, skb);
 discard:
 	kfree_skb(skb);
@@ -1681,6 +1684,8 @@ process:
 
 	bh_lock_sock_nested(sk);
 	ret = 0;
+	//判断t套接字是否被使用
+	//如果没有关联的用户任务，则调用tcp_v4_do_rcv接收数据包
 	if (!sock_owned_by_user(sk)) {
 #ifdef CONFIG_NET_DMA
 		struct tcp_sock *tp = tcp_sk(sk);
@@ -1695,13 +1700,14 @@ process:
 			ret = tcp_v4_do_rcv(sk, skb);
 		}
 	} else
+		//如果套接字正在被加锁使用，则需要把当前套接字缓冲区加入套接字队列中
 		sk_add_backlog(sk, skb);
 	bh_unlock_sock(sk);
 
 	sock_put(sk);
 
 	return ret;
-
+	//TCP连接不存在时的处理
 no_tcp_socket:
 	if (!xfrm4_policy_check(NULL, XFRM_POLICY_IN, skb))
 		goto discard_it;
@@ -1710,6 +1716,7 @@ no_tcp_socket:
 bad_packet:
 		TCP_INC_STATS_BH(TCP_MIB_INERRS);
 	} else {
+		//发送RST标志的数据包，通知对方连接不存在
 		tcp_v4_send_reset(NULL, skb);
 	}
 
@@ -1733,8 +1740,11 @@ do_time_wait:
 		inet_twsk_put(inet_twsk(sk));
 		goto discard_it;
 	}
+	//处于TCP状态机的TIME_WAIT状态，根据数据标志做进一步处理
 	switch (tcp_timewait_state_process(inet_twsk(sk), skb, th)) {
+		//如果有SYN标志，确定是否处于监听种
 	case TCP_TW_SYN: {
+		//如果当前套接字在监听，则需要进一步c处理
 		struct sock *sk2 = inet_lookup_listener(&tcp_hashinfo,
 							iph->daddr, th->dest,
 							inet_iif(skb));

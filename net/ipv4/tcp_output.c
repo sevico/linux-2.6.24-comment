@@ -2331,14 +2331,15 @@ int tcp_connect(struct sock *sk)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct sk_buff *buff;
-
+	//为建立连接初始化
 	tcp_connect_init(sk);
-
+	//分配一个套接字缓冲区，用于发送连接请求
 	buff = alloc_skb_fclone(MAX_TCP_HEADER + 15, sk->sk_allocation);
 	if (unlikely(buff == NULL))
 		return -ENOBUFS;
 
 	/* Reserve space for headers. */
+	//预留TCP头部空间
 	skb_reserve(buff, MAX_TCP_HEADER);
 
 	TCP_SKB_CB(buff)->flags = TCPCB_FLAG_SYN;

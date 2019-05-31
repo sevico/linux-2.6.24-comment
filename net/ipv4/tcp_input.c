@@ -4962,12 +4962,13 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 		goto discard;
 
 	case TCP_LISTEN:
+		//如果当前收到有ACK标志的包，则复位连接
 		if (th->ack)
 			return 1;
-
+		//如果当前收到有RST标志的包，则丢弃数据包
 		if (th->rst)
 			goto discard;
-
+		//如果当前收到有SYN标志的包，则对方请求建立连接
 		if (th->syn) {
 			//tcp_v4_conn_request
 			if (icsk->icsk_af_ops->conn_request(sk, skb) < 0)
@@ -4996,6 +4997,9 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 		goto discard;
 
 	case TCP_SYN_SENT:
+		//如果tcp_rcv_synsent_state_process检查数据包是否有ACK和SYN
+		//标志，如果有，则表示连接成功建立
+		//状态转换成TCP_ESTABLISHED
 		queued = tcp_rcv_synsent_state_process(sk, skb, th, len);
 		if (queued >= 0)
 			return queued;
@@ -5006,7 +5010,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 		tcp_data_snd_check(sk);
 		return 0;
 	}
-
+	//处理高速网络中的重复序列号
 	if (tcp_fast_parse_options(skb, th, tp) && tp->rx_opt.saw_tstamp &&
 	    tcp_paws_discard(sk, skb)) {
 		if (!th->rst) {
@@ -5046,13 +5050,16 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 
 	/* step 5: check the ACK field */
 	if (th->ack) {
+		//变量acceptable记录是否接收连接请求
 		int acceptable = tcp_ack(sk, skb, FLAG_SLOWPATH);
-
+		//根据当前状态切换到下一个状态
 		switch (sk->sk_state) {
+			//状态SYN_RECV下的处理
 		case TCP_SYN_RECV:
 			if (acceptable) {
 				tp->copied_seq = tp->rcv_nxt;
 				smp_mb();
+			//如果允许连接，则把状态切换为TCP_ESTABLISHED
 				tcp_set_state(sk, TCP_ESTABLISHED);
 				sk->sk_state_change(sk);
 
@@ -5075,6 +5082,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 				 * and does not calculate rtt.
 				 * Fix it at least with timestamps.
 				 */
+				 //时间戳的处理
 				if (tp->rx_opt.saw_tstamp && tp->rx_opt.rcv_tsecr &&
 				    !tp->srtt)
 					tcp_ack_saw_tstamp(sk, 0);
@@ -5124,7 +5132,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 						NET_INC_STATS_BH(LINUX_MIB_TCPABORTONDATA);
 						return 1;
 					}
-
+					//设置保留FIN_WAIT2状态的时间
 					tmo = tcp_fin_time(sk);
 					if (tmo > TCP_TIMEWAIT_LEN) {
 						inet_csk_reset_keepalive_timer(sk, tmo - TCP_TIMEWAIT_LEN);

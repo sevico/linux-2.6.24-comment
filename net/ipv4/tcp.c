@@ -673,7 +673,8 @@ int tcp_sendmsg(struct kiocb *iocb, struct socket *sock, struct msghdr *msg,
 
 	lock_sock(sk);
 	TCP_CHECK_TIMER(sk);
-
+	//根据应用程序s设置的标志位，确定是否为MSG_DONTWAIT(非阻塞模式)
+	//如果数据包没有MSG_DONTWAIT标志，则设置发送超时时间
 	flags = msg->msg_flags;
 	timeo = sock_sndtimeo(sk, flags & MSG_DONTWAIT);
 
@@ -684,7 +685,7 @@ int tcp_sendmsg(struct kiocb *iocb, struct socket *sock, struct msghdr *msg,
 
 	/* This should be in poll */
 	clear_bit(SOCK_ASYNC_NOSPACE, &sk->sk_socket->flags);
-
+	//得到当前最大的TCP包尺寸
 	mss_now = tcp_current_mss(sk, !(flags&MSG_OOB));
 	size_goal = tp->xmit_size_goal;
 
@@ -694,6 +695,7 @@ int tcp_sendmsg(struct kiocb *iocb, struct socket *sock, struct msghdr *msg,
 	copied = 0;
 
 	err = -EPIPE;
+	//如果发送过程已结束，则返回
 	if (sk->sk_err || (sk->sk_shutdown & SEND_SHUTDOWN))
 		goto do_error;
 
@@ -715,9 +717,10 @@ new_segment:
 				/* Allocate new segment. If the interface is SG,
 				 * allocate skb fitting to single page.
 				 */
+				 //开始创建一个新的TCP分段
 				if (!sk_stream_memory_free(sk))
 					goto wait_for_sndbuf;
-
+				//分配新的套接字缓冲区，用来发送数据
 				skb = sk_stream_alloc_pskb(sk, select_size(sk),
 							   0, sk->sk_allocation);
 				if (!skb)
@@ -819,23 +822,25 @@ new_segment:
 
 			if (!copied)
 				TCP_SKB_CB(skb)->flags &= ~TCPCB_FLAG_PSH;
-
+			//设置TCP发送序号
 			tp->write_seq += copy;
 			TCP_SKB_CB(skb)->end_seq += copy;
 			skb_shinfo(skb)->gso_segs = 0;
-
+			//设置复制的起始位置和长度
 			from += copy;
 			copied += copy;
 			if ((seglen -= copy) == 0 && iovlen == 0)
 				goto out;
-
+			//如果有带外数据，则在退出循环后通过tcp_push发送数据
 			if (skb->len < mss_now || (flags & MSG_OOB))
 				continue;
-
+			//确定是否需要PUSH标志
 			if (forced_push(tp)) {
 				tcp_mark_push(tp, skb);
+				//开启NAGLE算法开始发送数据
 				__tcp_push_pending_frames(sk, mss_now, TCP_NAGLE_PUSH);
 			} else if (skb == tcp_send_head(sk))
+				//如果套接字缓冲区刚好装下数据，则发送h缓冲区的数据
 				tcp_push_one(sk, mss_now);
 			continue;
 
@@ -843,6 +848,7 @@ wait_for_sndbuf:
 			set_bit(SOCK_NOSPACE, &sk->sk_socket->flags);
 wait_for_memory:
 			if (copied)
+				//努力把NAGLE算法缓存的数据发送出去
 				tcp_push(sk, flags & ~MSG_MORE, mss_now, TCP_NAGLE_PUSH);
 
 			if ((err = sk_stream_wait_memory(sk, &timeo)) != 0)
