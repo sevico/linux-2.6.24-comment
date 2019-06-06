@@ -158,6 +158,7 @@ EXPORT_SYMBOL_GPL(ip_build_and_send_pkt);
 
 static inline int ip_finish_output2(struct sk_buff *skb)
 {
+	//通过套接字缓冲区的struct dst_dentry指针访问邻居子系统
 	struct dst_entry *dst = skb->dst;
 	struct rtable *rt = (struct rtable *)dst;
 	struct net_device *dev = dst->dev;
@@ -182,10 +183,13 @@ static inline int ip_finish_output2(struct sk_buff *skb)
 		kfree_skb(skb);
 		skb = skb2;
 	}
-
+	//如果有缓存指针hh，则通过hh->hh_output发送数据
+	//如果缓存指针hh为空，则通过dst->neighbour->output发送数据
 	if (dst->hh)
+		//hh->hh_output指向一个发送数据的接口函数，比如dev_queue_xmit
 		return neigh_hh_output(dst->hh, skb);
 	else if (dst->neighbour)
+		//output指向一个发送数据的接口函数，比如dev_queue_xmit
 		return dst->neighbour->output(skb);
 
 	if (net_ratelimit())
@@ -211,6 +215,7 @@ static int ip_finish_output(struct sk_buff *skb)
 		return dst_output(skb);
 	}
 #endif
+	//如果数据包太大而不能在网络上直接传输，则将它分成一些较小的分片
 	if (skb->len > ip_skb_dst_mtu(skb) && !skb_is_gso(skb))
 		return ip_fragment(skb, ip_finish_output2);
 	else
@@ -301,12 +306,16 @@ int ip_queue_xmit(struct sk_buff *skb, int ipfragok)
 	/* Skip all of this if the packet is already routed,
 	 * f.e. by something like SCTP.
 	 */
+	 //得到套接字缓冲区曾经记录的表项信息，写入变量rt中
 	rt = (struct rtable *) skb->dst;
 	if (rt != NULL)
 		goto packet_routed;
 
 	/* Make sure we can route this packet. */
+	//确认套接字缓存的路由信息是否有效,并返回给变量rt
 	rt = (struct rtable *)__sk_dst_check(sk, 0);
+	//如果tcp连接后,路由表项信息被保存在套接字缓冲区中
+	//如果没有缓存的路由表项信息,则查找路由表,获取路由表项信息
 	if (rt == NULL) {
 		__be32 daddr;
 
@@ -331,11 +340,14 @@ int ip_queue_xmit(struct sk_buff *skb, int ipfragok)
 			 * itself out.
 			 */
 			security_sk_classify_flow(sk, &fl);
+			//查找路由,把路由表项信息返回给rt变量
 			if (ip_route_output_flow(&rt, &fl, sk, 0))
 				goto no_route;
 		}
 		sk_setup_caps(sk, &rt->u.dst);
 	}
+	//该行代码非常重要,它为套接字缓冲区指定了路由表项信息,
+	//为数据包进入IP发送流程设置了具体方法
 	skb->dst = dst_clone(&rt->u.dst);
 
 packet_routed:
@@ -343,9 +355,11 @@ packet_routed:
 		goto no_route;
 
 	/* OK, we know where to send it, allocate and build IP header. */
+	//在套接字缓冲区中为IP头部留下IP头部空间
 	skb_push(skb, sizeof(struct iphdr) + (opt ? opt->optlen : 0));
 	skb_reset_network_header(skb);
 	iph = ip_hdr(skb);
+	//设置IP头部的协议信息
 	*((__be16 *)iph) = htons((4 << 12) | (5 << 8) | (inet->tos & 0xff));
 	iph->tot_len = htons(skb->len);
 	if (ip_dont_fragment(sk, &rt->u.dst) && !ipfragok)
@@ -357,20 +371,22 @@ packet_routed:
 	iph->saddr    = rt->rt_src;
 	iph->daddr    = rt->rt_dst;
 	/* Transport layer set skb->h.foo itself. */
-
+	//构建IP选项信息
 	if (opt && opt->optlen) {
 		iph->ihl += opt->optlen >> 2;
 		ip_options_build(skb, opt, inet->daddr, rt, 0);
 	}
-
+	//设置IP包的标识符
 	ip_select_ident_more(iph, &rt->u.dst, sk,
 			     (skb_shinfo(skb)->gso_segs ?: 1) - 1);
 
 	/* Add an IP checksum. */
+	//设置IP校验和
 	ip_send_check(iph);
 
 	skb->priority = sk->sk_priority;
-
+	//程序执行到这里,已经为dst_output配置了必要的skb信息
+	//内核将从这里转到dst_output函数,通过ip_output函数进入IP层处理
 	return NF_HOOK(PF_INET, NF_IP_LOCAL_OUT, skb, NULL, rt->u.dst.dev,
 		       dst_output);
 
@@ -1209,6 +1225,7 @@ int ip_push_pending_frames(struct sock *sk)
 {
 	struct sk_buff *skb, *tmp_skb;
 	struct sk_buff **tail_skb;
+	//通过sk中的struct inet_opt结构获得路由表项信息
 	struct inet_sock *inet = inet_sk(sk);
 	struct ip_options *opt = NULL;
 	struct rtable *rt = inet->cork.rt;
@@ -1216,7 +1233,7 @@ int ip_push_pending_frames(struct sock *sk)
 	__be16 df = 0;
 	__u8 ttl;
 	int err = 0;
-
+	//检查套接字发送队列是否为空，并返回队首的套接字缓冲区
 	if ((skb = __skb_dequeue(&sk->sk_write_queue)) == NULL)
 		goto out;
 	tail_skb = &(skb_shinfo(skb)->frag_list);
@@ -1224,6 +1241,7 @@ int ip_push_pending_frames(struct sock *sk)
 	/* move skb->data to ip header from ext header */
 	if (skb->data < skb_network_header(skb))
 		__skb_pull(skb, skb_network_offset(skb));
+	//遍历套接字发送队列，调整数据长度
 	while ((tmp_skb = __skb_dequeue(&sk->sk_write_queue)) != NULL) {
 		__skb_pull(tmp_skb, skb_network_header_len(skb));
 		*tail_skb = tmp_skb;
@@ -1246,6 +1264,7 @@ int ip_push_pending_frames(struct sock *sk)
 	/* DF bit is set when we want to see DF on outgoing frames.
 	 * If local_df is set too, we still allow to fragment this frame
 	 * locally. */
+	 //得到分片标志
 	if (inet->pmtudisc >= IP_PMTUDISC_DO ||
 	    (skb->len <= dst_mtu(&rt->u.dst) &&
 	     ip_dont_fragment(sk, &rt->u.dst)))
@@ -1253,30 +1272,44 @@ int ip_push_pending_frames(struct sock *sk)
 
 	if (inet->cork.flags & IPCORK_OPT)
 		opt = inet->cork.opt;
-
+	//获取TTL值
 	if (rt->rt_type == RTN_MULTICAST)
 		ttl = inet->mc_ttl;
 	else
 		ttl = ip_select_ttl(inet, &rt->u.dst);
-
+	//将套接字缓冲区中的data所指区域强制转换成struct iphdr结构
 	iph = (struct iphdr *)skb->data;
+	//设置IP包头的版本号
 	iph->version = 4;
+	//设置ip包长度
 	iph->ihl = 5;
+	//检查IP选项
 	if (opt) {
 		iph->ihl += opt->optlen>>2;
 		ip_options_build(skb, opt, inet->cork.addr, rt, 0);
 	}
+	//设置IP包头TOS字段
 	iph->tos = inet->tos;
+	//设置IP包总长度
 	iph->tot_len = htons(skb->len);
+	//设置分片的偏移量
 	iph->frag_off = df;
+	//设置IP包的标志号
 	ip_select_ident(iph, &rt->u.dst, sk);
+	//设置IP包头的TTL字段
 	iph->ttl = ttl;
+	//设置IP头部中的协议字段
 	iph->protocol = sk->sk_protocol;
+	//设置IP头部的源IP地址
 	iph->saddr = rt->rt_src;
+	//设置IP头部的目的IP地址
 	iph->daddr = rt->rt_dst;
+	//计算校验和并设置IP头部的校验和字段
 	ip_send_check(iph);
 
 	skb->priority = sk->sk_priority;
+	//该行代码非常重要，它为套接字缓冲区指定了路由表项信息
+	//为数据包进入IP发送流程设置了具体方法
 	skb->dst = dst_clone(&rt->u.dst);
 
 	if (iph->protocol == IPPROTO_ICMP)
@@ -1284,6 +1317,8 @@ int ip_push_pending_frames(struct sock *sk)
 			skb_transport_header(skb))->type);
 
 	/* Netfilter gets whole the not fragmented skb. */
+	//执行到这里，已经为dst_output配置完skb处理信息
+	//内核将从这里跳转到dst_output函数，通过ip_output函数进入ip发送流程
 	err = NF_HOOK(PF_INET, NF_IP_LOCAL_OUT, skb, NULL,
 		      skb->dst->dev, dst_output);
 	if (err) {

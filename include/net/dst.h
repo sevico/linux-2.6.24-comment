@@ -236,6 +236,7 @@ static inline void dst_set_expires(struct dst_entry *dst, int timeout)
 /* Output packet to network from transport.  */
 static inline int dst_output(struct sk_buff *skb)
 {
+	//ip_output
 	return skb->dst->output(skb);
 }
 
