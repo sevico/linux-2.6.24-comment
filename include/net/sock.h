@@ -222,51 +222,63 @@ struct sock {
 	wait_queue_head_t	*sk_sleep;
 	//路由缓存指针
 	struct dst_entry	*sk_dst_cache;
+	//流控制策略
 	struct xfrm_policy	*sk_policy[2];
 	rwlock_t		sk_dst_lock;
+	//接收缓冲区分配计数器
 	atomic_t		sk_rmem_alloc;
+	//发送缓冲区队列分配计数
 	atomic_t		sk_wmem_alloc;
+	//其他缓冲区队列分配计数
 	atomic_t		sk_omem_alloc;
 	int			sk_sndbuf;
+	//套接字缓冲区接收队列
 	struct sk_buff_head	sk_receive_queue;
+	//套接字缓冲区发送队列
 	struct sk_buff_head	sk_write_queue;
 	struct sk_buff_head	sk_async_wait_queue;
-	int			sk_wmem_queued;
-	int			sk_forward_alloc;
-	gfp_t			sk_allocation;
-	int			sk_route_caps;
+	int			sk_wmem_queued;  //稳定队列的长度
+	int			sk_forward_alloc; //提前分配的空间
+	gfp_t			sk_allocation;  //分配模式
+	int			sk_route_caps;	//网络驱动标志特征
 	int			sk_gso_type;
 	int			sk_rcvlowat;
-	unsigned long 		sk_flags;
+	unsigned long 		sk_flags; //标志
 	unsigned long	        sk_lingertime;
-	struct sk_buff_head	sk_error_queue;
+	struct sk_buff_head	sk_error_queue;  //出错的sk_buff队列
 	struct proto		*sk_prot_creator;
-	rwlock_t		sk_callback_lock;
-	int			sk_err,
+	rwlock_t		sk_callback_lock;  //用于回调函数的锁
+	int			sk_err, //错误记录
 				sk_err_soft;
-	unsigned short		sk_ack_backlog;
-	unsigned short		sk_max_ack_backlog;
-	__u32			sk_priority;
-	struct ucred		sk_peercred;
-	long			sk_rcvtimeo;
-	long			sk_sndtimeo;
-	struct sk_filter      	*sk_filter;
-	void			*sk_protinfo;
-	struct timer_list	sk_timer;
-	ktime_t			sk_stamp;
-	struct socket		*sk_socket;
-	void			*sk_user_data;
-	struct page		*sk_sndmsg_page;
-	struct sk_buff		*sk_send_head;
-	__u32			sk_sndmsg_off;
-	int			sk_write_pending;
-	void			*sk_security;
+	unsigned short		sk_ack_backlog;  //当前的真挺队列长度
+	unsigned short		sk_max_ack_backlog;  //最大的侦听队列长度
+	__u32			sk_priority;  //优先级
+	struct ucred		sk_peercred;  //SO_PEERCRED设置
+	long			sk_rcvtimeo;  //接收超时定时计数
+	long			sk_sndtimeo;  //发送超时定时计数
+	struct sk_filter      	*sk_filter;  //过滤器
+	void			*sk_protinfo;  //私有数据，描述协议族
+	struct timer_list	sk_timer;  //时钟列表
+	ktime_t			sk_stamp;  //时间戳
+	struct socket		*sk_socket;  //指向所属的struct socket
+	void			*sk_user_data;  //RPC私有数据
+	struct page		*sk_sndmsg_page;  //分页的片记录
+	struct sk_buff		*sk_send_head;//发送缓冲头部
+	__u32			sk_sndmsg_off;  //分片的偏移位置
+	int			sk_write_pending;  //发送过程等待
+	void			*sk_security;  //安全设置
+	//该struct sock结构状态变化时的回调函数
 	void			(*sk_state_change)(struct sock *sk);
+	//数据准备好时的回调函数
 	void			(*sk_data_ready)(struct sock *sk, int bytes);
+	//发送空间可用时的回调函数
 	void			(*sk_write_space)(struct sock *sk);
+	//错误发生时的回调函数
 	void			(*sk_error_report)(struct sock *sk);
+	//处理backlog的回调函数
   	int			(*sk_backlog_rcv)(struct sock *sk,
-						  struct sk_buff *skb);  
+						  struct sk_buff *skb);
+	//释放struct sock结构的回调函数
 	void                    (*sk_destruct)(struct sock *sk);
 };
 
