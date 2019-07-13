@@ -289,18 +289,19 @@ static inline int ip_rcv_options(struct sk_buff *skb)
 	   and running sniffer is extremely rare condition.
 					      --ANK (980813)
 	*/
+	//调用函数skb_cow来确定skb是否共享而且可写入，以确保缓冲区修改的安全性
 	if (skb_cow(skb, skb_headroom(skb))) {
 		IP_INC_STATS_BH(IPSTATS_MIB_INDISCARDS);
 		goto drop;
 	}
 
 	iph = ip_hdr(skb);
-
+	//函数ip_options_compile从数据包收集选项信息
 	if (ip_options_compile(NULL, skb)) {
 		IP_INC_STATS_BH(IPSTATS_MIB_INHDRERRORS);
 		goto drop;
 	}
-
+	//检查数据包是否设置了源路由选项，并予以处理
 	opt = &(IPCB(skb)->opt);
 	if (unlikely(opt->srr)) {
 		struct in_device *in_dev = in_dev_get(dev);
@@ -318,7 +319,7 @@ static inline int ip_rcv_options(struct sk_buff *skb)
 
 			in_dev_put(in_dev);
 		}
-
+		//调用ip_options_rcv_srr处理选项
 		if (ip_options_rcv_srr(skb))
 			goto drop;
 	}
@@ -338,6 +339,8 @@ static int ip_rcv_finish(struct sk_buff *skb)
 	 *	how the packet travels inside Linux networking.
 	 */
 	if (skb->dst == NULL) {
+		//如果套接字缓冲区skb还未记录路由表信息，则需要调用
+		//函数ip_route_input查找路由表，为skb设置路由表信息
 		int err = ip_route_input(skb, iph->daddr, iph->saddr, iph->tos,
 					 skb->dev);
 		if (unlikely(err)) {
@@ -359,7 +362,7 @@ static int ip_rcv_finish(struct sk_buff *skb)
 		st[(idx>>16)&0xFF].i_bytes+=skb->len;
 	}
 #endif
-
+	//如果IP包头长度大于20字节，那么包头携带了IP选项信息
 	if (iph->ihl > 5 && ip_rcv_options(skb))
 		goto drop;
 
@@ -390,6 +393,7 @@ int ip_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt, 
 	/* When the interface is in promisc. mode, drop all the crap
 	 * that it receives, do not try to analyse it.
 	 */
+	 //丢弃发送给其他主机的数据包
 	if (skb->pkt_type == PACKET_OTHERHOST)
 		goto drop;
 
@@ -399,10 +403,10 @@ int ip_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt, 
 		IP_INC_STATS_BH(IPSTATS_MIB_INDISCARDS);
 		goto out;
 	}
-
+	//检查数据包长度是否为IP包头的长度
 	if (!pskb_may_pull(skb, sizeof(struct iphdr)))
 		goto inhdr_error;
-
+	//得到IP包的包头起始位置
 	iph = ip_hdr(skb);
 
 	/*
@@ -415,15 +419,15 @@ int ip_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt, 
 	 *	3.	Checksums correctly. [Speed optimisation for later, skip loopback checksums]
 	 *	4.	Doesn't have a bogus length
 	 */
-
+	//检查数据包是否为IPv4包
 	if (iph->ihl < 5 || iph->version != 4)
 		goto inhdr_error;
-
+	//检查套接字缓冲区是否足够容纳数据包指定长度的包头
 	if (!pskb_may_pull(skb, iph->ihl*4))
 		goto inhdr_error;
 
 	iph = ip_hdr(skb);
-
+	//检查校验和
 	if (unlikely(ip_fast_csum((u8 *)iph, iph->ihl)))
 		goto inhdr_error;
 
@@ -438,6 +442,7 @@ int ip_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt, 
 	 * is IP we can trim to the true length of the frame.
 	 * Note this now means skb->len holds ntohs(iph->tot_len).
 	 */
+	 //去掉填充字段
 	if (pskb_trim_rcsum(skb, len)) {
 		IP_INC_STATS_BH(IPSTATS_MIB_INDISCARDS);
 		goto drop;
@@ -445,7 +450,7 @@ int ip_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt, 
 
 	/* Remove any debris in the socket control block */
 	memset(IPCB(skb), 0, sizeof(struct inet_skb_parm));
-
+	//由过滤器调用ip_rcv_finish，进一步处理数据包
 	return NF_HOOK(PF_INET, NF_IP_PRE_ROUTING, skb, dev, NULL,
 		       ip_rcv_finish);
 

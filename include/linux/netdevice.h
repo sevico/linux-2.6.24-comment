@@ -610,17 +610,17 @@ struct net_device
  */
 	/* device queue lock */
 	spinlock_t		queue_lock ____cacheline_aligned_in_smp;
-	struct Qdisc		*qdisc;
+	struct Qdisc		*qdisc;//网络设备的排队规则
 	struct Qdisc		*qdisc_sleeping;
-	struct list_head	qdisc_list;
+	struct list_head	qdisc_list; //队列规则列表
 	unsigned long		tx_queue_len;	/* Max frames per queue allowed */
 
 	/* Partially transmitted GSO packet. */
 	struct sk_buff		*gso_skb;
 
 	/* ingress path synchronizer */
-	spinlock_t		ingress_lock;
-	struct Qdisc		*qdisc_ingress;
+	spinlock_t		ingress_lock;//输入保护锁
+	struct Qdisc		*qdisc_ingress;//输入队列规则
 
 /*
  * One part is mostly used on xmit path (device)
