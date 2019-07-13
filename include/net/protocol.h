@@ -33,6 +33,7 @@
 
 
 /* This is used to register protocols. */
+//管理第四层接收数据包的方法
 struct net_protocol {
 	int			(*handler)(struct sk_buff *skb);
 	void			(*err_handler)(struct sk_buff *skb, u32 info);
@@ -66,6 +67,7 @@ struct inet6_protocol
 #endif
 
 /* This is used to register socket interfaces for IP protocols.  */
+//把INET套接字协议族操作集与传输层协议操作集关联起来
 struct inet_protosw {
 	struct list_head list;
 

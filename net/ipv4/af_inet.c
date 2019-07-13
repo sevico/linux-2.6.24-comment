@@ -384,6 +384,8 @@ lookup_protocol:
 		 */
 		inet->sport = htons(inet->num);
 		/* Add to protocol hash chains. */
+		//如果是raw套接字，hash函数把sk记录到raw_v4_htable表中\
+		//在接收原始数据包时，可访问raw_v4_htable得到raw套接字
 		sk->sk_prot->hash(sk);
 	}
 	//如果传输层协议提供了init()接口，则调用它完成传输层特有的初始化。对于TCP，

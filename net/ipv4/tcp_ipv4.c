@@ -1854,15 +1854,17 @@ static struct tcp_sock_af_ops tcp_sock_ipv4_specific = {
 /* NOTE: A lot of things set to zero explicitly by call to
  *       sk_alloc() so need not be done here.
  */
+ //初始化套接字与TCP协议有关的数据，包括与拥塞控制有关的字段，缓冲区和与队列有关的字段
 static int tcp_v4_init_sock(struct sock *sk)
 {
 	struct inet_connection_sock *icsk = inet_csk(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
-
+	//初始化TCP队列out_of_order_queue
 	skb_queue_head_init(&tp->out_of_order_queue);
+	//初始化传输时用到的定时器
 	tcp_init_xmit_timers(sk);
 	tcp_prequeue_init(tp);
-
+	//初始化超时时间
 	icsk->icsk_rto = TCP_TIMEOUT_INIT;
 	tp->mdev = TCP_TIMEOUT_INIT;
 
@@ -1871,20 +1873,24 @@ static int tcp_v4_init_sock(struct sock *sk)
 	 * algorithms that we must have the following bandaid to talk
 	 * efficiently to them.  -DaveM
 	 */
+	 //初始化发送窗口，初值为2
 	tp->snd_cwnd = 2;
 
 	/* See draft-stevens-tcpca-spec-01 for discussion of the
 	 * initialization of these values.
 	 */
+	 //设置慢启动窗口
 	tp->snd_ssthresh = 0x7fffffff;	/* Infinity */
+	//拥塞窗口控制snd_cwnd_clamp
 	tp->snd_cwnd_clamp = ~0;
+	//设置TCP数据包(段)最小长度
 	tp->mss_cache = 536;
 
 	tp->reordering = sysctl_tcp_reordering;
 	icsk->icsk_ca_ops = &tcp_init_congestion_ops;
-
+	//套接字初始为关闭状态
 	sk->sk_state = TCP_CLOSE;
-
+	//套接字发送队列可用时调用该函数
 	sk->sk_write_space = sk_stream_write_space;
 	sock_set_flag(sk, SOCK_USE_WRITE_QUEUE);
 
@@ -1893,10 +1899,10 @@ static int tcp_v4_init_sock(struct sock *sk)
 #ifdef CONFIG_TCP_MD5SIG
 	tp->af_specific = &tcp_sock_ipv4_specific;
 #endif
-
+	//初始化套接字的发送缓冲和接收缓冲
 	sk->sk_sndbuf = sysctl_tcp_wmem[1];
 	sk->sk_rcvbuf = sysctl_tcp_rmem[1];
-
+	//累计打开的TCP套接字数，并保存在tcp_sockets_allocated
 	atomic_inc(&tcp_sockets_allocated);
 
 	return 0;
