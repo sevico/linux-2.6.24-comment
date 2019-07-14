@@ -215,9 +215,9 @@ struct sock {
 	 * access. Therefore we special case it's implementation.
 	 */
 	struct {
-		struct sk_buff *head;
-		struct sk_buff *tail;
-	} sk_backlog;
+		struct sk_buff *head;  //记录最先接收到的数据包
+		struct sk_buff *tail;	//记录最后接收到的数据包
+	} sk_backlog;  //后备队列
 	//等待队列首部
 	wait_queue_head_t	*sk_sleep;
 	//路由缓存指针
@@ -236,7 +236,7 @@ struct sock {
 	struct sk_buff_head	sk_receive_queue;
 	//套接字缓冲区发送队列
 	struct sk_buff_head	sk_write_queue;
-	struct sk_buff_head	sk_async_wait_queue;
+	struct sk_buff_head	sk_async_wait_queue; //DMA复制的数据包
 	int			sk_wmem_queued;  //稳定队列的长度
 	int			sk_forward_alloc; //提前分配的空间
 	gfp_t			sk_allocation;  //分配模式

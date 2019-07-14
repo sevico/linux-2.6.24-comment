@@ -252,12 +252,12 @@ struct sk_buff {
 	struct sk_buff		*next;
 	struct sk_buff		*prev;
 
-	struct sock		*sk;
-	ktime_t			tstamp;
-	struct net_device	*dev;
+	struct sock		*sk; //指向所属的sock结构
+	ktime_t			tstamp;  //数据包到达的时间
+	struct net_device	*dev;  //接收数据包的网络设备
 
-	struct  dst_entry	*dst;
-	struct	sec_path	*sp;
+	struct  dst_entry	*dst;  //路由项
+	struct	sec_path	*sp;  //用于xfrm的安全路径
 
 	/*
 	 * This is the control buffer. It is free to use for every
@@ -266,37 +266,37 @@ struct sk_buff {
 	 * first. This is owned by whoever has the skb queued ATM.
 	 */
 	char			cb[48];
-
+	//全部数据块的长度
 	unsigned int		len,
-				data_len;
-	__u16			mac_len,
-				hdr_len;
+				data_len; //分段，分散数据块的总长度
+	__u16			mac_len, //链路层头部的长度
+				hdr_len;  //在克隆数据包时可写的头部长度
 	union {
-		__wsum		csum;
+		__wsum		csum;  //校验和也可以称作检验和用于验证目的
 		struct {
-			__u16	csum_start;
-			__u16	csum_offset;
+			__u16	csum_start;  //校验和在数据包头部skb->head中的起始位置
+			__u16	csum_offset;  //校验和保存到csum_start中的位置
 		};
 	};
-	__u32			priority;
-	__u8			local_df:1,
-				cloned:1,
-				ip_summed:2,
-				nohdr:1,
-				nfctinfo:3;
-	__u8			pkt_type:3,
-				fclone:2,
-				ipvs_property:1,
-				nf_trace:1;
-	__be16			protocol;
+	__u32			priority;  //数据包在队列中的优先级
+	__u8			local_df:1,  //是否允许本地数据分段
+				cloned:1,  //是否允许被克隆
+				ip_summed:2,  //IP校验和标志
+				nohdr:1,  //运载时使用时，表示不能修改头部
+				nfctinfo:3;  //数据包连接关系
+	__u8			pkt_type:3,  //数据包的类型
+				fclone:2,  //数据包克隆状态
+				ipvs_property:1,  //数据包所属的ipvs
+				nf_trace:1;  //netfilter对数据包的跟踪标志
+	__be16			protocol;  //底层驱动使用的数据包协议
 
-	void			(*destructor)(struct sk_buff *skb);
+	void			(*destructor)(struct sk_buff *skb);  //销毁数据包的函数
 #if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
 	struct nf_conntrack	*nfct;
 	struct sk_buff		*nfct_reasm;
 #endif
 #ifdef CONFIG_BRIDGE_NETFILTER
-	struct nf_bridge_info	*nf_bridge;
+	struct nf_bridge_info	*nf_bridge;  //关于网桥的数据
 #endif
 
 	int			iif;
@@ -320,16 +320,16 @@ struct sk_buff {
 
 	__u32			mark;
 
-	sk_buff_data_t		transport_header;
-	sk_buff_data_t		network_header;
-	sk_buff_data_t		mac_header;
+	sk_buff_data_t		transport_header;  //指向数据块中传输层头部
+	sk_buff_data_t		network_header;  //指向数据块中网络层头部
+	sk_buff_data_t		mac_header;  //指向数据块中链路层头部
 	/* These elements must be at the end, see alloc_skb() for details.  */
-	sk_buff_data_t		tail;
-	sk_buff_data_t		end;
-	unsigned char		*head,
-				*data;
-	unsigned int		truesize;
-	atomic_t		users;
+	sk_buff_data_t		tail;  //指向数据块的结束地址
+	sk_buff_data_t		end;  //指向缓冲块的结束地址
+	unsigned char		*head,  //指向缓冲块的开始地址
+				*data;  //指向数据块的开始地址
+	unsigned int		truesize; //数据包的实际长度，结构长度与数据块长度之和
+	atomic_t		users;  //数据包的使用计数器
 };
 
 #ifdef __KERNEL__
