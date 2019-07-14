@@ -243,12 +243,14 @@ struct tcp_sock {
 	/* inet_connection_sock has to be the first member of tcp_sock */
 	struct inet_connection_sock	inet_conn;
 	u16	tcp_header_len;	/* Bytes of tcp header to send		*/
+	//分段传送的数据包数量
 	u16	xmit_size_goal;	/* Goal for segmenting output packets	*/
 
 /*
  *	Header prediction flags
  *	0x5?10 << 16 + snd_wnd in net byte order
  */
+ 	//头部的预置位
 	__be32	pred_flags;
 
 /*
@@ -258,6 +260,7 @@ struct tcp_sock {
  */
  	u32	rcv_nxt;	/* What we want to receive next 	*/
 	u32	copied_seq;	/* Head of yet unread data		*/
+	//rcv_nxt在最后一次窗口更新的内容
 	u32	rcv_wup;	/* rcv_nxt on last window update sent	*/
  	u32	snd_nxt;	/* Next sequence we send		*/
 
@@ -268,11 +271,11 @@ struct tcp_sock {
 
 	/* Data for direct copy to user */
 	struct {
-		struct sk_buff_head	prequeue;
-		struct task_struct	*task;
-		struct iovec		*iov;
-		int			memory;
-		int			len;
+		struct sk_buff_head	prequeue;  //预处理队列
+		struct task_struct	*task;  //预处理进程
+		struct iovec		*iov;  //用户程序接收数据的缓冲区
+		int			memory;  //预处理数据包计数器
+		int			len;  //预处理长度
 #ifdef CONFIG_NET_DMA
 		/* members for async copy */
 		struct dma_chan		*dma_chan;
@@ -291,6 +294,7 @@ struct tcp_sock {
 	u32	rcv_ssthresh;	/* Current window clamp			*/
 
 	u32	frto_highmark;	/* snd_nxt when RTO occurred */
+	//预设的数据包数量
 	u8	reordering;	/* Packet reordering metric.		*/
 	u8	frto_counter;	/* Number of new acks after RTO */
 	u8	nonagle;	/* Disable Nagle algorithm?             */
