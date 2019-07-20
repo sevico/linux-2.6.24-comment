@@ -75,9 +75,9 @@ struct inet_ehash_bucket {
  */
 struct inet_bind_bucket {
 	unsigned short		port;
-	signed short		fastreuse;
-	struct hlist_node	node;
-	struct hlist_head	owners;
+	signed short		fastreuse;  //可重复使用
+	struct hlist_node	node;  //链入哈希桶中的哈希节点
+	struct hlist_head	owners;  //sock结构队列
 };
 
 #define inet_bind_bucket_for_each(tb, node, head) \
@@ -99,24 +99,29 @@ struct inet_hashinfo {
 	 *
 	 * TIME_WAIT sockets use a separate chain (twchain).
 	 */
+	 //已经连接的sock结构都链入该哈希桶，它有两个队列，第一个是连接的sock队列
+	 //另一个为定时等待的sock队列
 	struct inet_ehash_bucket	*ehash;
+	//队列锁
 	rwlock_t			*ehash_locks;
+	//队列长度
 	unsigned int			ehash_size;
+	//锁掩码
 	unsigned int			ehash_locks_mask;
 
 	/* Ok, let's try this, I give up, we do need a local binding
 	 * TCP hash as well as the others for fast bind/connect.
 	 */
-	struct inet_bind_hashbucket	*bhash;
+	struct inet_bind_hashbucket	*bhash;//管理端口号的哈希表
 
-	unsigned int			bhash_size;
+	unsigned int			bhash_size;  //哈希桶长度
 	/* Note : 4 bytes padding on 64 bit arches */
 
 	/* All sockets in TCP_LISTEN state will be in here.  This is the only
 	 * table where wildcard'd TCP sockets can exist.  Hash function here
 	 * is just local port number.
 	 */
-	struct hlist_head		listening_hash[INET_LHTABLE_SIZE];
+	struct hlist_head		listening_hash[INET_LHTABLE_SIZE]; //监听哈希队列
 
 	/* All the above members are written once at bootup and
 	 * never written again _or_ are predominantly read-access.
@@ -126,8 +131,8 @@ struct inet_hashinfo {
 	 */
 	rwlock_t			lhash_lock ____cacheline_aligned;
 	atomic_t			lhash_users;
-	wait_queue_head_t		lhash_wait;
-	struct kmem_cache			*bind_bucket_cachep;
+	wait_queue_head_t		lhash_wait; //等待队列头
+	struct kmem_cache			*bind_bucket_cachep;  //高速缓存
 };
 
 static inline struct inet_ehash_bucket *inet_ehash_bucket(

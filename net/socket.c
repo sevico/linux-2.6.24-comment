@@ -236,12 +236,13 @@ static struct kmem_cache *sock_inode_cachep __read_mostly;
 static struct inode *sock_alloc_inode(struct super_block *sb)
 {
 	struct socket_alloc *ei;
-
+	//分配socket_alloc结构
+	//sock_inode_cachep在sock_init处初始化
 	ei = kmem_cache_alloc(sock_inode_cachep, GFP_KERNEL);
 	if (!ei)
 		return NULL;
-	init_waitqueue_head(&ei->socket.wait);
-
+	init_waitqueue_head(&ei->socket.wait);  //初始化等待队列头
+	//初始化socket
 	ei->socket.fasync_list = NULL;
 	ei->socket.state = SS_UNCONNECTED;
 	ei->socket.flags = 0;
@@ -476,11 +477,11 @@ static struct socket *sock_alloc(void)
 {
 	struct inode *inode;
 	struct socket *sock;
-
+	//在网络文件系统中创建文件节点同时分配socket结构
 	inode = new_inode(sock_mnt->mnt_sb);
 	if (!inode)
 		return NULL;
-
+	//取得socket结构指针
 	sock = SOCKET_I(inode);
 
 	inode->i_mode = S_IFSOCK | S_IRWXUGO;

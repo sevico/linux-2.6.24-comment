@@ -65,7 +65,7 @@ int inet_csk_bind_conflict(const struct sock *sk,
 			    sk2->sk_state == TCP_LISTEN) {
 				const __be32 sk2_rcv_saddr = inet_rcv_saddr(sk2);
 				if (!sk2_rcv_saddr || !sk_rcv_saddr ||
-				    sk2_rcv_saddr == sk_rcv_saddr)
+				    sk2_rcv_saddr == sk_rcv_saddr) //是否绑定地址相同
 					break;
 			}
 		}

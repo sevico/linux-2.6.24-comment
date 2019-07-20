@@ -363,7 +363,7 @@ lookup_protocol:
 	sk->sk_destruct	   = inet_sock_destruct;
 	sk->sk_family	   = PF_INET;
 	sk->sk_protocol	   = protocol;
-	sk->sk_backlog_rcv = sk->sk_prot->backlog_rcv;
+	sk->sk_backlog_rcv = sk->sk_prot->backlog_rcv;  //设置处理库存函数
 	//传输控制块中组播相关成员的初始化
 	inet->uc_ttl	= -1;
 	inet->mc_loop	= 1;
@@ -455,7 +455,7 @@ int inet_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 	err = -EINVAL;
 	if (addr_len < sizeof(struct sockaddr_in))
 		goto out;
-
+	//在路由中检查地址类型
 	chk_addr_ret = inet_addr_type(addr->sin_addr.s_addr);
 
 	/* Not specified by any standard per-se, however it breaks too
@@ -469,12 +469,12 @@ int inet_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 	if (!sysctl_ip_nonlocal_bind &&
 	    !inet->freebind &&
 	    addr->sin_addr.s_addr != INADDR_ANY &&
-	    chk_addr_ret != RTN_LOCAL &&
-	    chk_addr_ret != RTN_MULTICAST &&
-	    chk_addr_ret != RTN_BROADCAST)
+	    chk_addr_ret != RTN_LOCAL && //是否单播类型
+	    chk_addr_ret != RTN_MULTICAST &&  //是否组播类型
+	    chk_addr_ret != RTN_BROADCAST)  //是否广播类型
 		goto out;
 
-	snum = ntohs(addr->sin_port);
+	snum = ntohs(addr->sin_port); //取得端口号
 	err = -EACCES;
 	if (snum && snum < PROT_SOCK && !capable(CAP_NET_BIND_SERVICE))
 		goto out;
@@ -486,35 +486,42 @@ int inet_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 	 *      would be illegal to use them (multicast/broadcast) in
 	 *      which case the sending device address is used.
 	 */
+	 //加锁，如果sock锁被其他进程占用了，当前进程睡眠等待唤醒
 	lock_sock(sk);
 
 	/* Check these errors (active socket, double bind). */
 	err = -EINVAL;
+	//检查状态，端口是否已指定
 	if (sk->sk_state != TCP_CLOSE || inet->num)
 		goto out_release_sock;
-
+	//记录绑定地址
 	inet->rcv_saddr = inet->saddr = addr->sin_addr.s_addr;
 	if (chk_addr_ret == RTN_MULTICAST || chk_addr_ret == RTN_BROADCAST)
 		inet->saddr = 0;  /* Use device */
 
 	/* Make sure we are allowed to bind here. */
+	//检查是否允许绑定
+	//tcp:inet_csk_get_port
 	if (sk->sk_prot->get_port(sk, snum)) {
+		//检验失败就清空设置的地址
 		inet->saddr = inet->rcv_saddr = 0;
 		err = -EADDRINUSE;
 		goto out_release_sock;
 	}
-
+	//如果已经设置地址就增加锁标志，表示已经绑定了地址
 	if (inet->rcv_saddr)
 		sk->sk_userlocks |= SOCK_BINDADDR_LOCK;
+	//如果端口也已经确定也要增加锁标志，表示已经绑定了端口
 	if (snum)
 		sk->sk_userlocks |= SOCK_BINDPORT_LOCK;
+	//记录端口路
 	inet->sport = htons(inet->num);
-	inet->daddr = 0;
-	inet->dport = 0;
+	inet->daddr = 0;//初始化目标地址
+	inet->dport = 0;//初始化目标端口
 	sk_dst_reset(sk);
 	err = 0;
 out_release_sock:
-	release_sock(sk);
+	release_sock(sk); //解锁，并唤醒sock锁上的其他进程
 out:
 	return err;
 }

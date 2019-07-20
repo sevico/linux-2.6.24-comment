@@ -161,16 +161,17 @@ unsigned inet_addr_type(__be32 addr)
 	struct fib_result	res;
 	unsigned ret = RTN_BROADCAST;
 	struct fib_table *local_table;
-
+	//检查地址是否是零地址或广播地址
 	if (ZERONET(addr) || BADCLASS(addr))
 		return RTN_BROADCAST;
+	//检查地址是否是组播地址
 	if (MULTICAST(addr))
 		return RTN_MULTICAST;
 
 #ifdef CONFIG_IP_MULTIPLE_TABLES
 	res.r = NULL;
 #endif
-
+	//查找本地路由函数表
 	local_table = fib_get_table(RT_TABLE_LOCAL);
 	if (local_table) {
 		ret = RTN_UNICAST;
