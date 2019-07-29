@@ -6,12 +6,18 @@
 #include <net/ip_fib.h>
 
 struct fib_alias {
+	//链入到路由节点fib_node中
 	struct list_head	fa_list;
 	struct rcu_head rcu;
+	//路由信息结构保存着如何处理数据包
 	struct fib_info		*fa_info;
+	//服务类型
 	u8			fa_tos;
+	//路由类型
 	u8			fa_type;
+	//路由范围
 	u8			fa_scope;
+	//状态标志
 	u8			fa_state;
 };
 

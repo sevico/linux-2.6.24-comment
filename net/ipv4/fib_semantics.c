@@ -386,20 +386,20 @@ static int fib_count_nexthops(struct rtnexthop *rtnh, int remaining)
 static int fib_get_nhs(struct fib_info *fi, struct rtnexthop *rtnh,
 		       int remaining, struct fib_config *cfg)
 {
-	change_nexthops(fi) {
+	change_nexthops(fi) {  //依次取出每个跳转结构
 		int attrlen;
 
-		if (!rtnh_ok(rtnh, remaining))
+		if (!rtnh_ok(rtnh, remaining))  //控制范围
 			return -EINVAL;
 
 		nh->nh_flags = (cfg->fc_flags & ~0xFF) | rtnh->rtnh_flags;
 		nh->nh_oif = rtnh->rtnh_ifindex;
 		nh->nh_weight = rtnh->rtnh_hops + 1;
-
+		//检查属性结构后面是否还有内容
 		attrlen = rtnh_attrlen(rtnh);
 		if (attrlen > 0) {
 			struct nlattr *nla, *attrs = rtnh_attrs(rtnh);
-
+			//取得属性数据中的网关地址
 			nla = nla_find(attrs, attrlen, RTA_GATEWAY);
 			nh->nh_gw = nla ? nla_get_be32(nla) : 0;
 #ifdef CONFIG_NET_CLS_ROUTE
@@ -407,7 +407,7 @@ static int fib_get_nhs(struct fib_info *fi, struct rtnexthop *rtnh,
 			nh->nh_tclassid = nla ? nla_get_u32(nla) : 0;
 #endif
 		}
-
+		//指向下一个'配置的跳转结构'
 		rtnh = rtnh_next(rtnh, &remaining);
 	} endfor_nexthops(fi);
 
@@ -726,19 +726,19 @@ struct fib_info *fib_create_info(struct fib_config *cfg)
 	fi = kzalloc(sizeof(*fi)+nhs*sizeof(struct fib_nh), GFP_KERNEL);
 	if (fi == NULL)
 		goto failure;
-	fib_info_cnt++;
-
+	fib_info_cnt++;  //递增路由信息结构的计数器
+	//初始化路由信息结构
 	fi->fib_protocol = cfg->fc_protocol;
 	fi->fib_flags = cfg->fc_flags;
 	fi->fib_priority = cfg->fc_priority;
 	fi->fib_prefsrc = cfg->fc_prefsrc;
 
 	fi->fib_nhs = nhs;
-	change_nexthops(fi) {
+	change_nexthops(fi) {//让所有跳转结构都来“结亲”
 		nh->nh_parent = fi;
 	} endfor_nexthops(fi)
 
-	if (cfg->fc_mx) {
+	if (cfg->fc_mx) {  //如果指定了netlink的属性队列
 		struct nlattr *nla;
 		int remaining;
 
@@ -748,6 +748,7 @@ struct fib_info *fib_create_info(struct fib_config *cfg)
 			if (type) {
 				if (type > RTAX_MAX)
 					goto err_inval;
+				//记录属性结构装载的数据地址
 				fi->fib_metrics[type - 1] = nla_get_u32(nla);
 			}
 		}

@@ -183,7 +183,7 @@ struct nlattr *nla_find(struct nlattr *head, int len, int attrtype)
 {
 	struct nlattr *nla;
 	int rem;
-
+	//循环在属性队列中查找attrtype类型的属性结构
 	nla_for_each_attr(nla, head, len, rem)
 		if (nla_type(nla) == attrtype)
 			return nla;

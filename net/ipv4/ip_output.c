@@ -806,6 +806,7 @@ int ip_append_data(struct sock *sk,
 	if (flags&MSG_PROBE)
 		return 0;
 	//如果传输控制块的输出队列为空，则需要为传输控制块设置一些临时信息
+	//如果队列为空，则对inet->corkt初始化，为分片做准备
 	if (skb_queue_empty(&sk->sk_write_queue)) {
 		/*
 		 * setup for corking.
@@ -822,11 +823,17 @@ int ip_append_data(struct sock *sk,
 			inet->cork.addr = ipc->addr;
 		}
 		dst_hold(&rt->u.dst);
+		//得到用来分片的MTU
 		inet->cork.fragsize = mtu = inet->pmtudisc == IP_PMTUDISC_PROBE ?
 					    rt->u.dst.dev->mtu :
 					    dst_mtu(rt->u.dst.path);
+		//inet->cork.rt是套接字sk携带的路由表项信息
+		//函数ip_push_frames有代码行struct rtable *rt=inet->cork.rt得到了路由表项
 		inet->cork.rt = rt;
 		inet->cork.length = 0;
+		//初始化分片位置信息:
+		//sk_sndmsg_page指向分片首地址
+		//sk_sndmsg_off是下一分片的存放位置
 		sk->sk_sndmsg_page = NULL;
 		sk->sk_sndmsg_off = 0;
 		if ((exthdrlen = rt->u.dst.header_len) != 0) {
@@ -837,14 +844,14 @@ int ip_append_data(struct sock *sk,
 		rt = inet->cork.rt;
 		if (inet->cork.flags & IPCORK_OPT)
 			opt = inet->cork.opt;
-
+		//如果不是第一个分片，则套接字缓冲区的data内容中没有头部格式信息
 		transhdrlen = 0;
 		exthdrlen = 0;
 		mtu = inet->cork.fragsize;
 	}
 	//获取链路层首部以及IP首部(包括选项)的长度
 	hh_len = LL_RESERVED_SPACE(rt->u.dst.dev);
-
+	//分片首部的长度
 	fragheaderlen = sizeof(struct iphdr) + (opt ? opt->optlen : 0);
 	//Ip数据包需4字节对齐，为加速计算直接将IP数据报的数据依据当前MTU 8字节对齐，然后重新得到用于分片的长度
 	maxfraglen = ((mtu - fragheaderlen) & ~7) + fragheaderlen;
@@ -863,7 +870,7 @@ int ip_append_data(struct sock *sk,
 	    rt->u.dst.dev->features & NETIF_F_V4_CSUM &&
 	    !exthdrlen)
 		csummode = CHECKSUM_PARTIAL;
-
+	//累计分片数据的总长度
 	inet->cork.length += length;
 	if (((length > mtu) && (sk->sk_protocol == IPPROTO_UDP)) &&
 			(rt->u.dst.dev->features & NETIF_F_UFO)) {
@@ -891,6 +898,8 @@ int ip_append_data(struct sock *sk,
 		copy = mtu - skb->len;
 		if (copy < length)
 			copy = maxfraglen - skb->len;
+		//如果当前套接字缓冲区中没有空间装入剩下的数据
+		//则要分配新套接字缓冲区给剩下的数据
 		if (copy <= 0) {
 			char *data;
 			unsigned int datalen;
@@ -927,13 +936,14 @@ alloc_new_skb:
 			 */
 			if (datalen == length + fraggap)
 				alloclen += rt->u.dst.trailer_len;
-
+			//分配套接字缓冲区
 			if (transhdrlen) {
 				skb = sock_alloc_send_skb(sk,
 						alloclen + hh_len + 15,
 						(flags & MSG_DONTWAIT), &err);
 			} else {
 				skb = NULL;
+				//检查当前空间能否保存一个套接字缓冲区
 				if (atomic_read(&sk->sk_wmem_alloc) <=
 				    2 * sk->sk_sndbuf)
 					skb = sock_wmalloc(sk,
@@ -948,13 +958,17 @@ alloc_new_skb:
 			/*
 			 *	Fill in the control structures
 			 */
+			 //设置IP数据包的校验和模式
 			skb->ip_summed = csummode;
+			//初始阿虎校验和
 			skb->csum = 0;
+			//在套接字缓冲区中预留容纳硬件头部的空间
 			skb_reserve(skb, hh_len);
 
 			/*
 			 *	Find where to start putting bytes.
 			 */
+			 //为套接字缓冲区设置数据存放的其实位置
 			data = skb_put(skb, fraglen);
 			skb_set_network_header(skb, exthdrlen);
 			skb->transport_header = (skb->network_header +
@@ -970,15 +984,17 @@ alloc_new_skb:
 				data += fraggap;
 				pskb_trim_unique(skb_prev, maxfraglen);
 			}
-
+			//计算实际需要复制的数据长度
 			copy = datalen - transhdrlen - fraggap;
+			//把数据复制到套接字缓冲区中
 			if (copy > 0 && getfrag(from, data + transhdrlen, offset, copy, fraggap, skb) < 0) {
 				err = -EFAULT;
 				kfree_skb(skb);
 				goto error;
 			}
-
+			//计算分片的偏移位置
 			offset += copy;
+			//计算尚未分配套接字缓冲区的数据长度
 			length -= datalen - fraggap;
 			transhdrlen = 0;
 			exthdrlen = 0;

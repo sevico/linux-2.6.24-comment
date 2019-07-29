@@ -285,10 +285,10 @@ enum rtattr_type_t
 
 struct rtnexthop
 {
-	unsigned short		rtnh_len;
-	unsigned char		rtnh_flags;
-	unsigned char		rtnh_hops;
-	int			rtnh_ifindex;
+	unsigned short		rtnh_len;  //指定的跳转结构长度
+	unsigned char		rtnh_flags;  //指定的标志位
+	unsigned char		rtnh_hops;  //指定的跳转次数
+	int			rtnh_ifindex;  //指定的跳转设备
 };
 
 /* rtnh_flags */

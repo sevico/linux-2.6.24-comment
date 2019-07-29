@@ -2922,7 +2922,7 @@ __setup("rhash_entries=", set_rhash_entries);
 int __init ip_rt_init(void)
 {
 	int rc = 0;
-
+	//设置路由随机数
 	rt_hash_rnd = (int) ((num_physpages ^ (num_physpages>>8)) ^
 			     (jiffies ^ (jiffies >> 7)));
 
@@ -2938,13 +2938,13 @@ int __init ip_rt_init(void)
 	memset(ip_rt_acct, 0, PAGE_SIZE << order);
 	}
 #endif
-
+	//创建路由项的高速缓存，对象长度等于路由表的长度
 	ipv4_dst_ops.kmem_cachep =
 		kmem_cache_create("ip_dst_cache", sizeof(struct rtable), 0,
 				  SLAB_HWCACHE_ALIGN|SLAB_PANIC, NULL);
 
 	ipv4_dst_blackhole_ops.kmem_cachep = ipv4_dst_ops.kmem_cachep;
-
+	//创建路由哈希桶存储
 	rt_hash_table = (struct rt_hash_bucket *)
 		alloc_large_system_hash("IP route cache",
 					sizeof(struct rt_hash_bucket),

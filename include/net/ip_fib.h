@@ -21,44 +21,53 @@
 #include <net/fib_rules.h>
 
 struct fib_config {
-	u8			fc_dst_len;
-	u8			fc_tos;
-	u8			fc_protocol;
-	u8			fc_scope;
-	u8			fc_type;
+	u8			fc_dst_len;  //地址长度
+	u8			fc_tos;  //服务类型TOS
+	u8			fc_protocol;  //路由协议
+	u8			fc_scope;  //路由范围
+	u8			fc_type;  //路由类型
 	/* 3 bytes unused */
-	u32			fc_table;
-	__be32			fc_dst;
-	__be32			fc_gw;
-	int			fc_oif;
-	u32			fc_flags;
-	u32			fc_priority;
-	__be32			fc_prefsrc;
-	struct nlattr		*fc_mx;
-	struct rtnexthop	*fc_mp;
-	int			fc_mx_len;
-	int			fc_mp_len;
+	u32			fc_table;  //路由函数表
+	__be32			fc_dst;  //路由目标地址
+	__be32			fc_gw;  //网关
+	int			fc_oif;  //网络设备ID
+	u32			fc_flags;  //路由标志位
+	u32			fc_priority;  //路由优先级
+	__be32			fc_prefsrc;  //指定的IP地址
+	struct nlattr		*fc_mx;  //指向netlink属性队列
+	struct rtnexthop	*fc_mp;  //配置的跳转结构队列
+	int			fc_mx_len;  //全部netlink属性队列长度
+	int			fc_mp_len;  //全部配置跳转结构的总长度
 	u32			fc_flow;
-	u32			fc_nlflags;
-	struct nl_info		fc_nlinfo;
+	u32			fc_nlflags;  //netlink的标志位
+	struct nl_info		fc_nlinfo;  //netlink的信息结构
  };
 
 struct fib_info;
 
 struct fib_nh {
+	//指向网络设备结构
 	struct net_device	*nh_dev;
+	//链入到路由设备队列的哈希节点
 	struct hlist_node	nh_hash;
+	 //指向包含这个跳转的路由信息结构
 	struct fib_info		*nh_parent;
+	 //跳转标志位
 	unsigned		nh_flags;
+	 //路由跳转的范围，以此确定下一个跳转
 	unsigned char		nh_scope;
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
+	//跳转压力
 	int			nh_weight;
+	//跳转能力
 	int			nh_power;
 #endif
 #ifdef CONFIG_NET_CLS_ROUTE
 	__u32			nh_tclassid;
 #endif
+	//发送设备的ID
 	int			nh_oif;
+	//网关的IP地址
 	__be32			nh_gw;
 };
 
@@ -67,25 +76,26 @@ struct fib_nh {
  */
 
 struct fib_info {
+//通过fib_hash和fib_lhash链入到两个哈希表中
 	struct hlist_node	fib_hash;
 	struct hlist_node	fib_lhash;
-	int			fib_treeref;
-	atomic_t		fib_clntref;
-	int			fib_dead;
-	unsigned		fib_flags;
-	int			fib_protocol;
-	__be32			fib_prefsrc;
-	u32			fib_priority;
-	u32			fib_metrics[RTAX_MAX];
-#define fib_mtu fib_metrics[RTAX_MTU-1]
-#define fib_window fib_metrics[RTAX_WINDOW-1]
-#define fib_rtt fib_metrics[RTAX_RTT-1]
-#define fib_advmss fib_metrics[RTAX_ADVMSS-1]
-	int			fib_nhs;
+	int			fib_treeref;//路由信息结构的使用计数器
+	atomic_t		fib_clntref;  //是否释放路由信息结构的计数器
+	int			fib_dead;  //标志着路由是否被删除了
+	unsigned		fib_flags;  //标志位
+	int			fib_protocol;  //安装路由协议
+	__be32			fib_prefsrc;  //指定的源IP地址，源地址是与目标地址组成一个路由
+	u32			fib_priority;  //路由的优先级
+	u32			fib_metrics[RTAX_MAX];  //用来保存负载值
+#define fib_mtu fib_metrics[RTAX_MTU-1]  //MTU值
+#define fib_window fib_metrics[RTAX_WINDOW-1]  //窗口值
+#define fib_rtt fib_metrics[RTAX_RTT-1]  //RTT值
+#define fib_advmss fib_metrics[RTAX_ADVMSS-1]  //对外公开的MSS值
+	int			fib_nhs;  //跳转结构fib_nh的长度
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
-	int			fib_power;
+	int			fib_power;  //支持路径时使用
 #endif
-	struct fib_nh		fib_nh[0];
+	struct fib_nh		fib_nh[0]; //下一个跳转结构
 #define fib_dev		fib_nh[0].nh_dev
 };
 
@@ -137,10 +147,10 @@ struct fib_result_nl {
 #define FIB_RES_DEV(res)		(FIB_RES_NH(res).nh_dev)
 #define FIB_RES_OIF(res)		(FIB_RES_NH(res).nh_oif)
 
-struct fib_table {
-	struct hlist_node tb_hlist;
-	u32		tb_id;
-	unsigned	tb_stamp;
+struct fib_table {  //路由函数表结构定义
+	struct hlist_node tb_hlist;  //哈希节点
+	u32		tb_id;  //标识符
+	unsigned	tb_stamp;  //时间戳
 	int		(*tb_lookup)(struct fib_table *tb, const struct flowi *flp, struct fib_result *res);
 	int		(*tb_insert)(struct fib_table *, struct fib_config *);
 	int		(*tb_delete)(struct fib_table *, struct fib_config *);

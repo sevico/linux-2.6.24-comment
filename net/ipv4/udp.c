@@ -702,6 +702,8 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 			goto out;
 		//如果是已连接套接字，那么将路由信息设置到套接字，下次检查即可，不用重复查询，见上文
 		if (connected)
+			//令sk的dst字段指向rt->u.dst
+			//见sk_dst_get的代码行:dst=sk->sk_dst_cache
 			sk_dst_set(sk, dst_clone(&rt->u.dst));
 	}
 	//MSG_CONFIRM表示该报文要求接收端的数据链路层进行确认，用的很少，忽略

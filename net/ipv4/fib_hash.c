@@ -49,9 +49,9 @@ static struct kmem_cache *fn_hash_kmem __read_mostly;
 static struct kmem_cache *fn_alias_kmem __read_mostly;
 
 struct fib_node {
-	struct hlist_node	fn_hash;
-	struct list_head	fn_alias;
-	__be32			fn_key;
+	struct hlist_node	fn_hash;  //链入到哈希表的节点
+	struct list_head	fn_alias;  //路由别名队列
+	__be32			fn_key;  //子网地址
 };
 
 struct fn_zone {
@@ -204,24 +204,25 @@ static struct fn_zone *
 fn_new_zone(struct fn_hash *table, int z)
 {
 	int i;
+	//分配路由区结构
 	struct fn_zone *fz = kzalloc(sizeof(struct fn_zone), GFP_KERNEL);
 	if (!fz)
 		return NULL;
-
+	//检查子网掩码的位数
 	if (z) {
 		fz->fz_divisor = 16;
 	} else {
 		fz->fz_divisor = 1;
 	}
-	fz->fz_hashmask = (fz->fz_divisor - 1);
-	fz->fz_hash = fz_hash_alloc(fz->fz_divisor);
+	fz->fz_hashmask = (fz->fz_divisor - 1); //确定哈希头的掩码
+	fz->fz_hash = fz_hash_alloc(fz->fz_divisor);  //分配哈希头结构
 	if (!fz->fz_hash) {
 		kfree(fz);
 		return NULL;
 	}
 	memset(fz->fz_hash, 0, fz->fz_divisor * sizeof(struct hlist_head *));
-	fz->fz_order = z;
-	fz->fz_mask = inet_make_mask(z);
+	fz->fz_order = z;  //记录子网掩码数
+	fz->fz_mask = inet_make_mask(z);  //转换成子网掩码值
 
 	/* Find the first not empty zone with more specific mask */
 	for (i=z+1; i<=32; i++)
@@ -232,7 +233,7 @@ fn_new_zone(struct fn_hash *table, int z)
 		/* No more specific masks, we are the first. */
 		fz->fz_next = table->fn_zone_list;
 		table->fn_zone_list = fz;
-	} else {
+	} else {  //找到了，新建的路由区与它建立关联
 		fz->fz_next = table->fn_zones[i]->fz_next;
 		table->fn_zones[i]->fz_next = fz;
 	}
@@ -392,16 +393,18 @@ static int fn_hash_insert(struct fib_table *tb, struct fib_config *cfg)
 
 	if (cfg->fc_dst_len > 32)
 		return -EINVAL;
-
+	//取得对应路由区结构
 	fz = table->fn_zones[cfg->fc_dst_len];
+	//如果不存在则创建一个
 	if (!fz && !(fz = fn_new_zone(table, cfg->fc_dst_len)))
 		return -ENOBUFS;
 
 	key = 0;
+	//是否设置了地址
 	if (cfg->fc_dst) {
 		if (cfg->fc_dst & ~FZ_MASK(fz))
 			return -EINVAL;
-		key = fz_key(cfg->fc_dst, fz);
+		key = fz_key(cfg->fc_dst, fz);  //确定子网掩码值
 	}
 
 	fi = fib_create_info(cfg);
@@ -780,12 +783,12 @@ struct fib_table * __init fib_hash_init(u32 id)
 						  sizeof(struct fib_alias),
 						  0, SLAB_HWCACHE_ALIGN,
 						  NULL);
-
+	//在分配fib_table结构空间时连同fn_hash一起分配
 	tb = kmalloc(sizeof(struct fib_table) + sizeof(struct fn_hash),
 		     GFP_KERNEL);
 	if (tb == NULL)
 		return NULL;
-
+	//初始化设置fib_table
 	tb->tb_id = id;
 	tb->tb_lookup = fn_hash_lookup;
 	tb->tb_insert = fn_hash_insert;
