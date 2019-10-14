@@ -880,23 +880,32 @@ __be32 inet_select_addr(const struct net_device *dev, __be32 dst, int scope)
 	struct in_device *in_dev;
 
 	rcu_read_lock();
+	//获取该设备对应的ip地址
 	in_dev = __in_dev_get_rcu(dev);
 	if (!in_dev)
 		goto no_in_dev;
-
+	/*遍历in_dev-> ifa_list地址列表中所有的primary地址*/
 	for_primary_ifa(in_dev) {
+		/*进行scope判断，若primary地址的scope大于传递过来的scope值，则继续循环*/
 		if (ifa->ifa_scope > scope)
 			continue;
+/*1、若目的地址为空，则直接选择该primary ip地址
+2、该primary ip地址与dst地址在同一个子网内，则将ip地址赋值给addr，程序返回*/
 		if (!dst || inet_ifa_match(dst, ifa)) {
 			addr = ifa->ifa_local;
 			break;
 		}
+		/*将第一个primary ip地址作为默认选择地址*/
 		if (!addr)
 			addr = ifa->ifa_local;
 	} endfor_ifa(in_dev);
 no_in_dev:
 	rcu_read_unlock();
-
+	/*此处判断addr是否为空，若不为空，则认为找到了符合要求的ip地址，程序返回。
+	找到符合要求的ip地址的可能原因：
+1）	符合要求的ip地址与dst地址在同一个子网内
+2）	符合要求的ip地址与dst地址不在同一个子网内，此时为该设备中第一个scope值小于指定值的primary ip
+*/
 	if (addr)
 		goto out;
 
@@ -906,10 +915,12 @@ no_in_dev:
 	 */
 	read_lock(&dev_base_lock);
 	rcu_read_lock();
+	/*如果在指定的设备上没有找到符合要求的ip地址，则会扩大范围，在所有的设备上查找符合要求的ip地址*/
 	for_each_netdev(&init_net, dev) {
 		if ((in_dev = __in_dev_get_rcu(dev)) == NULL)
 			continue;
-
+		/*此时查找的条件已经放宽：
+只要scope值小于指定的scope值，则认为找到ip地址，程序返回*/
 		for_primary_ifa(in_dev) {
 			if (ifa->ifa_scope != RT_SCOPE_LINK &&
 			    ifa->ifa_scope <= scope) {

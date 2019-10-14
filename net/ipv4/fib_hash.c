@@ -634,12 +634,13 @@ static int fn_hash_delete(struct fib_table *tb, struct fib_config *cfg)
 		return -ESRCH;
 	//获取目的网络对应的网络键值key,并根据key获取目的网络对应的fib_node实例
 	key = 0;
+	//对目的地址进行合法性检测，并调用函数  fz_key构造查找关键字key
 	if (cfg->fc_dst) {
 		if (cfg->fc_dst & ~FZ_MASK(fz))
 			return -EINVAL;
 		key = fz_key(cfg->fc_dst, fz);
 	}
-
+	//根据搜索关键字key与fn_zone，调用fib_find_node查找符合条件的fib_node
 	f = fib_find_node(fz, key);
 	//如果没有对应的fib_node实例,则删除失败
 	if (!f)
@@ -680,6 +681,7 @@ static int fn_hash_delete(struct fib_table *tb, struct fib_config *cfg)
 
 		kill_fn = 0;
 		write_lock_bh(&fib_hash_lock);
+		//将该fib_alias从fib_node->fn_alias链表中删除
 		list_del(&fa->fa_list);
 		//若从fib_node->fn_alias链表中删除当前fib_alias后，fib_node->fn_alias为空，
 		//则同时需要从fn_zone->fz_hash链表数组中删除该fib_node节点；若fib_node->fn_alias不为空，则执行

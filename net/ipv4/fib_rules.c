@@ -142,7 +142,9 @@ static int fib4_rule_match(struct fib_rule *rule, struct flowi *fl, int flags)
 
 	return 1;
 }
-
+//从0开始到RT_TABLE_MAX为止，找到第一个没有创建路由表的id后，
+// 即调用fib_new_table创建此id对应的路由表，并返回路由表的首地址；
+//若从0开始到RT_TABLE_MAX的id，都有创建相应的路由表了，则程序返回NULL
 static struct fib_table *fib_empty_table(void)
 {
 	u32 id;
@@ -157,7 +159,10 @@ static const struct nla_policy fib4_rule_policy[FRA_MAX+1] = {
 	FRA_GENERIC_POLICY,
 	[FRA_FLOW]	= { .type = NLA_U32 },
 };
-
+//当新增加一个ipv4 的fib rule 规则时，就会调用该函数，对
+//新创建的struct fib4_rule类型的变量进行初始化操作，即根据
+//应用层传递的配置参数，设置struct fib4_rule类型的变量的
+//源ip地址、源ip的掩码值、目的ip地址、目的ip的掩码值、路由表id、tos等
 static int fib4_rule_configure(struct fib_rule *rule, struct sk_buff *skb,
 			       struct nlmsghdr *nlh, struct fib_rule_hdr *frh,
 			       struct nlattr **tb)
@@ -171,7 +176,13 @@ static int fib4_rule_configure(struct fib_rule *rule, struct sk_buff *skb,
 	if (rule->table == RT_TABLE_UNSPEC) {
 		if (rule->action == FR_ACT_TO_TBL) {
 			struct fib_table *table;
-
+			/*
+若应用层没有设置路由表的id，则调用fib_empty_table创建
+一个新的路由表，并将新创建的路由表的id传递
+给rule->table
+(使用如下命令，即会使系统创建一个新的路由表
+# ip rule add from 192.168.192.1 table 0)
+*/
 			table = fib_empty_table();
 			if (table == NULL) {
 				err = -ENOBUFS;

@@ -88,6 +88,8 @@ int fib_rules_register(struct fib_rules_ops *ops)
 		return -EINVAL;
 
 	spin_lock(&rules_mod_lock);
+	/*判断全局链表rules_ops中是否存在相同协议簇的struct fib_rules_ops变量，
+	若存在，则不再添加，程序返回*/
 	list_for_each_entry(o, &rules_ops, list)
 		if (ops->family == o->family)
 			goto errout;
@@ -111,7 +113,7 @@ static void cleanup_ops(struct fib_rules_ops *ops)
 		fib_rule_put(rule);
 	}
 }
-
+//将fib_rules_ops从全局链表rules_ops中删除，并删除该fib_rules_ops的rules_list链表中的所有fib rule规则(这主要是通过函数cleanup_ops实现)
 int fib_rules_unregister(struct fib_rules_ops *ops)
 {
 	int err = 0;
@@ -210,13 +212,17 @@ static int validate_rulemsg(struct fib_rule_hdr *frh, struct nlattr **tb,
 			    struct fib_rules_ops *ops)
 {
 	int err = -EINVAL;
-
+	//若源地址的长度不为0时，若tb[FRA_SRC]中为空，或者传入的地址
+	// 长度与相应协议规定的地址长度不等，或者实际传递的地址的
+	//实际长度与相应协议规定的地址长度不等时，则返回-EINVAL
 	if (frh->src_len)
 		if (tb[FRA_SRC] == NULL ||
 		    frh->src_len > (ops->addr_size * 8) ||
 		    nla_len(tb[FRA_SRC]) != ops->addr_size)
 			goto errout;
-
+	//若目的地址的长度不为0时，若tb[FRA_DST]中为空，或者传入的地址
+	// 长度与相应协议规定的地址长度不等，或者实际传递的地址的
+	//  实际长度与相应协议规定的地址长度不等时
 	if (frh->dst_len)
 		if (tb[FRA_DST] == NULL ||
 		    frh->dst_len > (ops->addr_size * 8) ||
@@ -239,30 +245,36 @@ static int fib_nl_newrule(struct sk_buff *skb, struct nlmsghdr* nlh, void *arg)
 
 	if (nlh->nlmsg_len < nlmsg_msg_size(sizeof(*frh)))
 		goto errout;
-
+	//根据应用层传递的协议类型，查找到相应注册的struct fib_rules_ops类型的变量
+	//  对于ipv4而言，就是fib4_rules_ops
 	ops = lookup_rules_ops(frh->family);
 	if (ops == NULL) {
 		err = EAFNOSUPPORT;
 		goto errout;
 	}
-
+	//对应用层传递的值进行解析，并对传入的源或者目的地址值进行合理性检查
+	/*对应用层传递的参数进行解析，并存放在tb中*/
 	err = nlmsg_parse(nlh, sizeof(*frh), tb, FRA_MAX, ops->policy);
 	if (err < 0)
 		goto errout;
-
+	/*调用validate_rulemsg对传入的源或者目的地址值进行合理性检查*/
 	err = validate_rulemsg(frh, tb, ops);
 	if (err < 0)
 		goto errout;
-
+	//创建一个新的fib rule缓存，并对优先级、接口index、接口名称、fwmark、action、table_id进行设置
 	rule = kzalloc(ops->rule_size, GFP_KERNEL);
 	if (rule == NULL) {
 		err = -ENOMEM;
 		goto errout;
 	}
-
+	/*
+根据应用层传递的参数，对优先级进行设置
+*/
 	if (tb[FRA_PRIORITY])
 		rule->pref = nla_get_u32(tb[FRA_PRIORITY]);
-
+	/*
+根据应用层传递的参数，决定是否需要设置fib rule的ifindex值
+*/
 	if (tb[FRA_IFNAME]) {
 		struct net_device *dev;
 
@@ -272,7 +284,10 @@ static int fib_nl_newrule(struct sk_buff *skb, struct nlmsghdr* nlh, void *arg)
 		if (dev)
 			rule->ifindex = dev->ifindex;
 	}
-
+	/*
+设置fib rule的fwmark，实际应用中可以根据这个值决定路由表的选择，即实现
+策略路由的功能
+*/
 	if (tb[FRA_FWMARK]) {
 		rule->mark = nla_get_u32(tb[FRA_FWMARK]);
 		if (rule->mark)
@@ -281,14 +296,21 @@ static int fib_nl_newrule(struct sk_buff *skb, struct nlmsghdr* nlh, void *arg)
 			 */
 			rule->mark_mask = 0xFFFFFFFF;
 	}
-
+	/*
+设置fwmark的掩码值
+*/
 	if (tb[FRA_FWMASK])
 		rule->mark_mask = nla_get_u32(tb[FRA_FWMASK]);
-
+	/*设置规则的action以及与该规则关联的路由表id，实现规则与路由表的关联*/
 	rule->action = frh->action;
 	rule->flags = frh->flags;
 	rule->table = frh_get_table(frh, tb);
-
+	/*
+当没有为策略规则配置优先级也没有默认优先级时，则会调用该协议对应
+的default_pref获取一个默认的优先级.
+对于ipv4，其default_pref的原理是获取规则链表中非0优先级中的最高优先级，
+即获取的默认优先级是除0优先级的规则外，最高的优先级。
+*/
 	if (!rule->pref && ops->default_pref)
 		rule->pref = ops->default_pref();
 
@@ -313,17 +335,23 @@ static int fib_nl_newrule(struct sk_buff *skb, struct nlmsghdr* nlh, void *arg)
 			unresolved = 1;
 	} else if (rule->action == FR_ACT_GOTO)
 		goto errout_free;
-
+	//调用协议对应的configure函数，对fib rule的源、目的ip、tos等值进行配置
 	err = ops->configure(rule, skb, nlh, frh, tb);
 	if (err < 0)
 		goto errout_free;
-
+	/*
+遍历规则链表，找到第一个pref值比当前刚创建的fib rule的pref值大的fib rule:
+若找到符合要求的规则，则将新创建的策略规则添加到符合要求的规则
+之前；
+若在搜索完整个链表仍没有找到符合要求的规则，则将该规则添加到
+当前链表已有规则的最后，即链尾。
+*/
 	list_for_each_entry(r, &ops->rules_list, list) {
 		if (r->pref > rule->pref)
 			break;
 		last = r;
 	}
-
+	//增加此fib rule的引用计数，并根据优先级将新的fib rule插入到协议相关的rules_list链表对应的位置
 	fib_rule_get(rule);
 
 	if (ops->unresolved_rules) {
