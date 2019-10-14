@@ -6,6 +6,11 @@
 #include <linux/fib_rules.h>
 #include <net/flow.h>
 #include <net/rtnetlink.h>
+/*
+
+策略规则对应的数据结构
+
+*/
 
 struct fib_rule
 {
@@ -30,10 +35,11 @@ struct fib_lookup_arg
 	void			*result;
 	struct fib_rule		*rule;
 };
-//路由规则函数表的结构定义
+//策略规则的操作相关的数据结构
 struct fib_rules_ops
 {
-	int			family; //协议族id
+	int			family; //协议族id	
+	/*链表用于将该协议簇已添加的所有fib_rule规则链接在一起*/	
 	struct list_head	list;  //队列头
 	int			rule_size;  //规则结构长度
 	int			addr_size; //地址长度

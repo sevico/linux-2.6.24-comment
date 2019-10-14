@@ -2068,7 +2068,8 @@ int netif_receive_skb(struct sk_buff *skb)
 		goto out;
 ncls:
 #endif
-
+	//若内核开启了桥转发，则让数据包让网桥函数来处理，
+	//若返回了skb，则说明还是需要协议栈来处理
 	skb = handle_bridge(skb, &pt_prev, &ret, orig_dev);
 	if (!skb)
 		goto out;
@@ -2077,6 +2078,7 @@ ncls:
 		goto out;
 
 	type = skb->protocol;
+	//遍历ptype_base散列表，根据收到报文的传输层协议类型，调用对应的报文接受例程
 	list_for_each_entry_rcu(ptype, &ptype_base[ntohs(type)&15], list) {
 		if (ptype->type == type &&
 		    (!ptype->dev || ptype->dev == skb->dev)) {
@@ -3693,7 +3695,7 @@ int register_netdevice(struct net_device *dev)
 			dev->features &= ~NETIF_F_UFO;
 		}
 	}
-
+	//将网络设备信息注册到sysfs文件中
 	ret = netdev_register_kobject(dev);
 	if (ret)
 		goto err_uninit;

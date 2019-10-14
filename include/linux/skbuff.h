@@ -324,6 +324,7 @@ struct sk_buff {
 	sk_buff_data_t		network_header;  //指向数据块中网络层头部
 	sk_buff_data_t		mac_header;  //指向数据块中链路层头部
 	/* These elements must be at the end, see alloc_skb() for details.  */
+	//发送数据时，每一层协议会在head与data之间填充协议首部。
 	sk_buff_data_t		tail;  //指向数据块的结束地址
 	sk_buff_data_t		end;  //指向缓冲块的结束地址
 	unsigned char		*head,  //指向缓冲块的开始地址
@@ -906,14 +907,21 @@ static inline unsigned char *__skb_put(struct sk_buff *skb, unsigned int len)
  *	exceed the total buffer size the kernel will panic. A pointer to the
  *	first byte of the extra data is returned.
  */
+ //向skb尾部添加数据
 static inline unsigned char *skb_put(struct sk_buff *skb, unsigned int len)
 {
+	/* 获取当前skb->tail */
 	unsigned char *tmp = skb_tail_pointer(skb);
+	/* 要求skb数据区必须为线性 */
 	SKB_LINEAR_ASSERT(skb);
+	/* skb尾部增加len字节 */
 	skb->tail += len;
+	/* skb数据总长度增加len字节 */
 	skb->len  += len;
+	/* 如果增加之后的tail > end ，则panic */
 	if (unlikely(skb->tail > skb->end))
 		skb_over_panic(skb, len, current_text_addr());
+	//返回添加数据的第一个字节位置
 	return tmp;
 }
 
@@ -933,12 +941,19 @@ static inline unsigned char *__skb_push(struct sk_buff *skb, unsigned int len)
  *	start. If this would exceed the total buffer headroom the kernel will
  *	panic. A pointer to the first byte of the extra data is returned.
  */
+ /*
+    向skb数据区头部添加数据
+*/
 static inline unsigned char *skb_push(struct sk_buff *skb, unsigned int len)
 {
+	/* 数据区data指针前移len字节 */
 	skb->data -= len;
+	/* 数据总长度增加len字节 */
 	skb->len  += len;
+	/* 添加数据长度溢出过header ，panic*/
 	if (unlikely(skb->data<skb->head))
 		skb_under_panic(skb, len, current_text_addr());
+	/* 返回新的data指针 */
 	return skb->data;
 }
 
@@ -959,6 +974,7 @@ static inline unsigned char *__skb_pull(struct sk_buff *skb, unsigned int len)
  *	is returned. Once the data has been pulled future pushes will overwrite
  *	the old data.
  */
+ //从数据区头部移除数据
 static inline unsigned char *skb_pull(struct sk_buff *skb, unsigned int len)
 {
 	return unlikely(len > skb->len) ? NULL : __skb_pull(skb, len);

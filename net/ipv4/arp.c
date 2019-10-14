@@ -715,12 +715,12 @@ static int arp_process(struct sk_buff *skb)
 	/* arp_rcv below verifies the ARP header and verifies the device
 	 * is ARP'able.
 	 */
-
+	//检测ARP报文输入网络设备的IP配置块是否有效
 	if (in_dev == NULL)
 		goto out;
 
 	arp = arp_hdr(skb);
-
+	//根据网络设备类型,检测输入ARP报文首部中硬件类型及协议类型域的有效性
 	switch (dev_type) {
 	default:
 		if (arp->ar_pro != htons(ETH_P_IP) ||
@@ -758,7 +758,7 @@ static int arp_process(struct sk_buff *skb)
 	}
 
 	/* Understand only these message types */
-
+	//目前只接受这两种类型的ARP请求
 	if (arp->ar_op != htons(ARPOP_REPLY) &&
 	    arp->ar_op != htons(ARPOP_REQUEST))
 		goto out;
@@ -766,6 +766,8 @@ static int arp_process(struct sk_buff *skb)
 /*
  *	Extract fields
  */
+ 	//获取ARP报文中发送方硬件地址,发送方IP地址,目的硬件地址和目的IP地址
+ 	//丢弃目的IP地址为环回地址或多播地址的报文
 	arp_ptr= (unsigned char *)(arp+1);
 	sha	= arp_ptr;
 	arp_ptr += dev->addr_len;

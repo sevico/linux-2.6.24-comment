@@ -25,13 +25,21 @@ struct qdisc_rate_table
 
 struct Qdisc
 {
+	//参见ops->enqueue
 	int 			(*enqueue)(struct sk_buff *skb, struct Qdisc *dev);
+	//参见ops->dequeue
 	struct sk_buff *	(*dequeue)(struct Qdisc *dev);
+	//排队规则标志
 	unsigned		flags;
+	//标识排队规则是空的排队规则,在删除释放时不需要做过多的资源释放
 #define TCQ_F_BUILTIN	1
+//标识排队规则正处于由于限制而延时出队的状态中
 #define TCQ_F_THROTTLED	2
+//标识排队规则是输入排队规则
 #define TCQ_F_INGRESS	4
+//内存对齐
 	int			padded;
+	//排队规则提供的操作接口
 	struct Qdisc_ops	*ops;
 	u32			handle;
 	u32			parent;
@@ -43,7 +51,9 @@ struct Qdisc
 	struct gnet_stats_basic	bstats;
 	struct gnet_stats_queue	qstats;
 	struct gnet_stats_rate_est	rate_est;
+	//信息统计操作自旋锁,防止多CPU并发,同net_device结构中的queue_lock
 	spinlock_t		*stats_lock;
+	//通过本字段在没有对象再使用该排队规则时释放该排队规则
 	struct rcu_head 	q_rcu;
 	int			(*reshape_fail)(struct sk_buff *skb,
 					struct Qdisc *q);

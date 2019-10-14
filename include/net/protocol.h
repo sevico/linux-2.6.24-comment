@@ -34,7 +34,13 @@
 
 /* This is used to register protocols. */
 //管理第四层接收数据包的方法
+/*
+定义了协议族中支持的传输层协议以及传输层的报文接受例程。
+此结构是网络层和传输层之间的桥梁，当网络层数据包从网络层流向传输层
+的时候，会调用此结构中的传输层协议数据报接受处理函数。
+*/
 struct net_protocol {
+//传输层协议数据报接受处理函数指针
 	int			(*handler)(struct sk_buff *skb);
 	void			(*err_handler)(struct sk_buff *skb, u32 info);
 	int			(*gso_send_check)(struct sk_buff *skb);
@@ -69,13 +75,18 @@ struct inet6_protocol
 /* This is used to register socket interfaces for IP protocols.  */
 //把INET套接字协议族操作集与传输层协议操作集关联起来
 struct inet_protosw {
+//用于初始化时在散列表中将type值相同的inet_protosw结构实例连接成链表。
 	struct list_head list;
 
         /* These two fields form the lookup key.  */
+	//标识套接口类型，对于Internet协议族共有三种类型：SOCK_STREAM、SOCK_DGRAM、SOCK_RAW，与应用程序层创建套接口函数
+	//二个参数type取值恰好对应
 	unsigned short	 type;	   /* This is the 2nd argument to socket(2). */
+	//标识协议族中四层的协议号，Internet协议族中的值包括IPPROTO_TCP、IPPROTO_UDP等
 	unsigned short	 protocol; /* This is the L4 protocol number.  */
-
+	//套接口网络层接口。TCP为tcp_prot；UDP为udp_prot；原始套接口为raw_prot
 	struct proto	 *prot;
+	//套接口传输层接口。TCP为inet_stream_ops；UDP为inet_dgram_ops；原始套接口为inet_sockraw_ops
 	const struct proto_ops *ops;
   
 	int              capability; /* Which (if any) capability do

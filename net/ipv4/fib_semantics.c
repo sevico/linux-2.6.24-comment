@@ -156,20 +156,27 @@ void free_fib_info(struct fib_info *fi)
 	fib_info_cnt--;
 	kfree(fi);
 }
-
+//判断是否需要释放fib_info变量占用的内存，若需要释放，则调用函数fib_info_put执行释放内存操作
+//会结合fib_treeref与fib_prefsrc的值来决定是否释放fib_info占用的内存
 void fib_release_info(struct fib_info *fi)
 {
 	spin_lock_bh(&fib_info_lock);
+	//根据 fib_treeref的值来决定，是否将该fib_info变量从全局hash链表 数组fib_info_hash[]与
+	//fib_info_laddrhash[]中删除。若fib_treeref的值不为0，则程序返回
 	if (fi && --fi->fib_treeref == 0) {
 		hlist_del(&fi->fib_hash);
 		if (fi->fib_prefsrc)
 			hlist_del(&fi->fib_lhash);
+		//若是需要删除，则同时会将该fib_info关联的fib_info->fib_nh 从hash链表数组
+		//fib_info_devhash[]中删除
 		change_nexthops(fi) {
 			if (!nh->nh_dev)
 				continue;
 			hlist_del(&nh->nh_hash);
 		} endfor_nexthops(fi)
+		//将fib_dead的值设置为1，主要是用于释放fib_info占用的内存时使用
 		fi->fib_dead = 1;
+		//调用函数fib_info_put，根据fib_clntref的值来决定是否需要是否fib_info所占用的内存
 		fib_info_put(fi);
 	}
 	spin_unlock_bh(&fib_info_lock);
@@ -214,7 +221,7 @@ static struct fib_info *fib_find_info(const struct fib_info *nfi)
 	struct hlist_node *node;
 	struct fib_info *fi;
 	unsigned int hash;
-
+	//根据该计算得出的hash值，可以从数组fib_info_hash[]中取出相应的hash链表元素
 	hash = fib_info_hashfn(nfi);
 	head = &fib_info_hash[hash];
 
@@ -330,8 +337,11 @@ errout:
 /* Return the first fib alias matching TOS with
  * priority less than or equal to PRIO.
  */
+ //根据tos、priority查找符匹配的fib_alias变量
+ //遍历链表fah ，查找tos小于传递的tos，且fib_priority大于或等于传递的prio的fib_alias变量
 struct fib_alias *fib_find_alias(struct list_head *fah, u8 tos, u32 prio)
 {
+//遍历链表fah ，查找tos小于传递的tos，且fib_priority大于或等于传递的prio的fib_alias变量
 	if (fah) {
 		struct fib_alias *fa;
 		list_for_each_entry(fa, fah, fa_list) {
@@ -519,7 +529,7 @@ static int fib_check_nh(struct fib_config *cfg, struct fib_info *fi,
 {
 	int err;
 
-	if (nh->nh_gw) {
+	if (nh->nh_gw) { //如果跳转结构指定了网关
 		struct fib_result res;
 
 #ifdef CONFIG_IP_ROUTE_PERVASIVE
@@ -634,7 +644,7 @@ static void fib_hash_move(struct hlist_head *new_info_hash,
 	old_info_hash = fib_info_hash;
 	old_laddrhash = fib_info_laddrhash;
 	fib_hash_size = new_size;
-
+	//将fib_info_hash[]数组里的所有hash表的所有hash项都移动到new_info_hash[]中的 hash链表中
 	for (i = 0; i < old_size; i++) {
 		struct hlist_head *head = &fib_info_hash[i];
 		struct hlist_node *node, *n;
@@ -652,7 +662,7 @@ static void fib_hash_move(struct hlist_head *new_info_hash,
 		}
 	}
 	fib_info_hash = new_info_hash;
-
+	//将fib_info_laddrhash[]数组里的所有hash表的所有hash项都移动到new_laddrhash[] 中的hash链表中
 	for (i = 0; i < old_size; i++) {
 		struct hlist_head *lhead = &fib_info_laddrhash[i];
 		struct hlist_node *node, *n;
@@ -674,6 +684,7 @@ static void fib_hash_move(struct hlist_head *new_info_hash,
 	spin_unlock_bh(&fib_info_lock);
 
 	bytes = old_size * sizeof(struct hlist_head *);
+	//将原来fib_info_hash、fib_info_laddrhash占用的内存释放掉
 	fib_hash_free(old_info_hash, bytes);
 	fib_hash_free(old_laddrhash, bytes);
 }
@@ -698,6 +709,9 @@ struct fib_info *fib_create_info(struct fib_config *cfg)
 #endif
 
 	err = -ENOBUFS;
+	//当前fib_info的数目大于等于fib_hash_size时，要对hash表
+	//fib_info_hash、fib_info_laddrhash的内存空间扩容1倍
+	
 	if (fib_info_cnt >= fib_hash_size) {
 		unsigned int new_size = fib_hash_size << 1;
 		struct hlist_head *new_info_hash;
@@ -722,7 +736,8 @@ struct fib_info *fib_create_info(struct fib_config *cfg)
 		if (!fib_hash_size)
 			goto failure;
 	}
-
+	//创建一个fib_info结构的变量，为该fib_info结构变量的fib_protocol、fib_flags、
+	//fib_priority、fib_prefsrc成员进行赋值，并增加fib_info_cnt的统计计数
 	fi = kzalloc(sizeof(*fi)+nhs*sizeof(struct fib_nh), GFP_KERNEL);
 	if (fi == NULL)
 		goto failure;
@@ -732,12 +747,12 @@ struct fib_info *fib_create_info(struct fib_config *cfg)
 	fi->fib_flags = cfg->fc_flags;
 	fi->fib_priority = cfg->fc_priority;
 	fi->fib_prefsrc = cfg->fc_prefsrc;
-
+	//设置该fib_info变量的所有fib_nh变量的nh_parent指针指向该fib_info
 	fi->fib_nhs = nhs;
 	change_nexthops(fi) {//让所有跳转结构都来“结亲”
 		nh->nh_parent = fi;
 	} endfor_nexthops(fi)
-
+	//根据传递的值，设置fib_metrics的值
 	if (cfg->fc_mx) {  //如果指定了netlink的属性队列
 		struct nlattr *nla;
 		int remaining;
@@ -753,7 +768,19 @@ struct fib_info *fib_create_info(struct fib_config *cfg)
 			}
 		}
 	}
+	/*
 
+1.当内核支持多路径路由时，则应用层传递的fc_mp大于0时，
+
+  则调用fib_get_nhs进行设置所有的fib_nh.
+
+2.当内核不支持多路径路由时，且应用层传递的fc_map大于0时，则返回出错。
+
+3.当应用层传递的fc_map为0时，则对该fib_info的fib_nh变量的的网关ip、输 
+
+     出接口、flag等进行赋值。
+
+*/
 	if (cfg->fc_mp) {
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
 		err = fib_get_nhs(fi, cfg->fc_mp, cfg->fc_mp_len, cfg);
@@ -783,35 +810,59 @@ struct fib_info *fib_create_info(struct fib_config *cfg)
 		nh->nh_weight = 1;
 #endif
 	}
-
+	//判断应用层传递的路由项的fc_scope值是否正确，若不正确，则程序返回
 	if (fib_props[cfg->fc_type].error) {
 		if (cfg->fc_gw || cfg->fc_oif || cfg->fc_mp)
 			goto err_inval;
 		goto link_it;
 	}
-
+	/*对于应用层创建的路由，如果其路由scope大于RT_SCOPE_HOST，则返回错误*/
 	if (cfg->fc_scope > RT_SCOPE_HOST)
 		goto err_inval;
+	/*
 
-	if (cfg->fc_scope == RT_SCOPE_HOST) {
+1.当创建路由的scope值为RT_SCOPE_HOST，说明这是一个到本地接口的变量， 则此时的fib_info的fib_nh结构的成员变量的scope需要设置为
+
+RT_SCOPE_NOWHERE，并设置nh_dev的值
+
+  a)若nhs值大于1时，则说明路由不对，因为对于scope为RT_SCOPE_HOST，
+
+其nhs是不可能大于1的
+
+  b)若nhs为1，但是fib_info->fib_nh->nh_gw不为0时，则说明路由不对，因为
+
+若下一跳网关的地址不为0，则当前路由的scope必须小于等于 RT_SCOPE_UNIVERSE。
+
+2.当创建路由的scope值小于RT_SCOPE_HOST时，则对于该fib_info变量下的所
+
+有fib_nh结构的变量，调用fib_check_nh函数进行合法性检查及设置到达下一跳地
+
+址的出口设备
+
+*/
+	if (cfg->fc_scope == RT_SCOPE_HOST) {  //路由范围是否属本机范围
 		struct fib_nh *nh = fi->fib_nh;
 
 		/* Local address is added. */
+		//检查跳转次数和网关地址
 		if (nhs != 1 || nh->nh_gw)
 			goto err_inval;
+		//修改跳转范围
+		//对下一跳网关对应的fib_nh结构变量的nh_scope、nh_dev等成员项进行赋值
 		nh->nh_scope = RT_SCOPE_NOWHERE;
 		nh->nh_dev = dev_get_by_index(&init_net, fi->fib_nh->nh_oif);
 		err = -ENODEV;
 		if (nh->nh_dev == NULL)
 			goto failure;
-	} else {
+	} else { //路由范围不是本机
 		change_nexthops(fi) {
+			//检查每一个跳转地址的"合法性"
 			if ((err = fib_check_nh(cfg, fi, nh)) != 0)
 				goto failure;
 		} endfor_nexthops(fi)
 	}
 
-	if (fi->fib_prefsrc) {
+	if (fi->fib_prefsrc) {  //如果指定了路由地址则检查地址类型
 		if (cfg->fc_type != RTN_LOCAL || !cfg->fc_dst ||
 		    fi->fib_prefsrc != cfg->fc_dst)
 			if (inet_addr_type(fi->fib_prefsrc) != RTN_LOCAL)
@@ -819,13 +870,35 @@ struct fib_info *fib_create_info(struct fib_config *cfg)
 	}
 
 link_it:
+	//调用fib_find_info，判断刚申请并初始化的变量是否已存在系统中
+	/*
+
+1.若刚创建的fib_info结构的变量已经存在，则释放该fib_info变量，程序返回；
+
+否则进入2
+
+2.将该fib_info变量添加到相应的hash链表fib_info_hash[fib_info_hashfn(fi)]中
+
+3.若该fib_info变量的首先源地址不为空，则将该fib_info变量添加到相应的hash
+
+链表fib_info_laddrhash[fib_laddr_hashfn(fi->fib_prefsrc)]中
+
+4.对于该fib_info变量的所有对应的fib_nh结构的变量中，若fib_nh->nh_dev不为
+
+空，则将该fib_nh变量添加到hash数组fib_info_devhash对应的hash链表中
+
+5.程序返回已创建的fib_info变量 
+
+*/
 	if ((ofi = fib_find_info(fi)) != NULL) {
+		//若存在，则对原来的fib_info变量的fib_treeref计数加一即可，则可以释放掉新申请的
+		//fib_info变量占用的内存;
 		fi->fib_dead = 1;
 		free_fib_info(fi);
 		ofi->fib_treeref++;
 		return ofi;
 	}
-
+	//若不存在，则将新创建的fib_info变量添加到系统的hash表中。
 	fi->fib_treeref++;
 	atomic_inc(&fi->fib_clntref);
 	spin_lock_bh(&fib_info_lock);
@@ -863,23 +936,28 @@ failure:
 }
 
 /* Note! fib_semantic_match intentionally uses  RCU list functions. */
+//该函数会遍历传入的链表head，搜索符合条件的fib_alias变量与fib_info变量
 int fib_semantic_match(struct list_head *head, const struct flowi *flp,
 		       struct fib_result *res, __be32 zone, __be32 mask,
 			int prefixlen)
 {
 	struct fib_alias *fa;
 	int nh_sel = 0;
-
+	//遍历链表head，查找符合条件的fib_alias变量
 	list_for_each_entry_rcu(fa, head, fa_list) {
 		int err;
-
+		//当fa_tos不等于传入的fowi结构变量对应的fl4_tos成员值；或者fa_tos
+		// 与fl4_tos的值相等，但是fa_scope值小于传入的fowi结构变量对应的
+		//fl4_scope成员值时，则继续进行遍历操作
 		if (fa->fa_tos &&
 		    fa->fa_tos != flp->fl4_tos)
 			continue;
 
 		if (fa->fa_scope < flp->fl4_scope)
 			continue;
-
+		//若fa_tos与fl4_tos的值相等，且fa_scope值大于或者等于传入的fowi结构
+		//变量对应的fl4_scope成员值时，则进一步进行fib_info中的fib_nh类型的
+		// 变量的匹配操作
 		fa->fa_state |= FA_S_ACCESSED;
 
 		err = fib_props[fa->fa_type].error;
@@ -895,7 +973,12 @@ int fib_semantic_match(struct list_head *head, const struct flowi *flp,
 			case RTN_BROADCAST:
 			case RTN_ANYCAST:
 			case RTN_MULTICAST:
+				//遍历上述b中查找的fib_info结构变量的fib_nh[]数组查找是否有满足要求
+				// 的fib_nh变量
 				for_nexthops(fi) {
+				// 若传入的oif的值为0或者传入的oif的值与fib_nh->oif相等，且该fib_nh结 构变量的nh_flags值的
+				// RTNH_F_DEAD位不为1，则认为查找到符合条件的 路由项。并对返回值res(fib_result结构)的
+				// prefixlen、nh_sel、type、scope、fi 等成员值进行赋值，并增加对fib_clntref的引用计数
 					if (nh->nh_flags&RTNH_F_DEAD)
 						continue;
 					if (!flp->oif || flp->oif == nh->nh_oif)

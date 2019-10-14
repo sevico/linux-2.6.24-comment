@@ -367,11 +367,11 @@ static int sock_attach_fd(struct socket *sock, struct file *file)
 {
 	struct dentry *dentry;
 	struct qstr name = { .name = "" };
-
+	//创建一个socket文件系统的目录项
 	dentry = d_alloc(sock_mnt->mnt_sb->s_root, &name);
 	if (unlikely(!dentry))
 		return -ENOMEM;
-
+	//目录项操作表挂入了socket文件系统的目录操作表
 	dentry->d_op = &sockfs_dentry_operations;
 	/*
 	 * We dont want to push this dentry into global dentry hash table.
@@ -382,6 +382,7 @@ static int sock_attach_fd(struct socket *sock, struct file *file)
 	d_instantiate(dentry, SOCK_INODE(sock));
 
 	sock->file = file;
+	//对socket的文件结构进行初始化,注意传递的文件操作表是socket_file_ops
 	init_file(file, sock_mnt, dentry, FMODE_READ | FMODE_WRITE,
 		  &socket_file_ops);
 	SOCK_INODE(sock)->i_fop = &socket_file_ops;

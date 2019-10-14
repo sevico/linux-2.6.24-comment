@@ -27,7 +27,7 @@ struct fib_config {
 	u8			fc_scope;  //路由范围
 	u8			fc_type;  //路由类型
 	/* 3 bytes unused */
-	u32			fc_table;  //路由函数表
+	u32			fc_table;  //路由函数表 路由表id
 	__be32			fc_dst;  //路由目标地址
 	__be32			fc_gw;  //网关
 	int			fc_oif;  //网络设备ID
@@ -38,7 +38,7 @@ struct fib_config {
 	struct rtnexthop	*fc_mp;  //配置的跳转结构队列
 	int			fc_mx_len;  //全部netlink属性队列长度
 	int			fc_mp_len;  //全部配置跳转结构的总长度
-	u32			fc_flow;
+	u32			fc_flow;  //基于策略路由的分类标签
 	u32			fc_nlflags;  //netlink的标志位
 	struct nl_info		fc_nlinfo;  //netlink的信息结构
  };
@@ -50,7 +50,7 @@ struct fib_nh {
 	struct net_device	*nh_dev;
 	//链入到路由设备队列的哈希节点
 	struct hlist_node	nh_hash;
-	 //指向包含这个跳转的路由信息结构
+	 //指向包含这个跳转的路由信息结构(fib_info)
 	struct fib_info		*nh_parent;
 	 //跳转标志位
 	unsigned		nh_flags;
@@ -77,11 +77,16 @@ struct fib_nh {
 
 struct fib_info {
 //通过fib_hash和fib_lhash链入到两个哈希表中
+	//通过fib_hash将fib_info实例插入到fib_info_hash散列表中
 	struct hlist_node	fib_hash;
+//将fib_info实例插入到fib_info_laddrhash散列表中.在路由表项有一个首选源地址时,才将fib_info结构插入到fib_info_laddrhash
 	struct hlist_node	fib_lhash;
+//持有该fib_info实例引用的fib_node数据结构的数目
 	int			fib_treeref;//路由信息结构的使用计数器
+	//由于路由查找成功而持有的引用计数
 	atomic_t		fib_clntref;  //是否释放路由信息结构的计数器
 	int			fib_dead;  //标志着路由是否被删除了
+	//当前使用的唯一标志是RTNH_F_DEAD,表示吓一跳无效.在支持多路径条件下使用
 	unsigned		fib_flags;  //标志位
 	int			fib_protocol;  //安装路由协议
 	__be32			fib_prefsrc;  //指定的源IP地址，源地址是与目标地址组成一个路由
@@ -104,13 +109,25 @@ struct fib_info {
 struct fib_rule;
 #endif
 
+/*
+路由查找结果相关的结构体
+*/
+
 struct fib_result {
+	/*掩码长度*/
 	unsigned char	prefixlen;
+	/*fib_info变量中的下一跳网关变量的index，根据该index值与struct fib_info结构
+类型的变量，就能够找到struct fib_nh结构的变量，从而就能够获取下一跳
+网关相关的属性*/
 	unsigned char	nh_sel;
-	unsigned char	type;
+	/*路由项的类型:为RTN_MULTICAST、RTN_UNICAST、RTN_BROADCAST等*/
+	unsigned char	type;	
+	/*路由项的scope:取值为RT_SCOPE_UNIVERSE、RT_SCOPE_LINK等*/
 	unsigned char	scope;
+	/*指向关联的struct fib_info结构类型的变量*/
 	struct fib_info *fi;
 #ifdef CONFIG_IP_MULTIPLE_TABLES
+	/*指向关联的fib_rule结构的变量，用于策略路由*/
 	struct fib_rule	*r;
 #endif
 };
@@ -156,10 +173,11 @@ struct fib_table {  //路由函数表结构定义
 	int		(*tb_delete)(struct fib_table *, struct fib_config *);
 	int		(*tb_dump)(struct fib_table *table, struct sk_buff *skb,
 				     struct netlink_callback *cb);
+	/*清空路由表的规则*/
 	int		(*tb_flush)(struct fib_table *table);
 	void		(*tb_select_default)(struct fib_table *table,
 					     const struct flowi *flp, struct fib_result *res);
-
+	/*可变长数组，主要是用来指向掩码相关的hash数组*/
 	unsigned char	tb_data[0];
 };
 

@@ -636,7 +636,7 @@ struct net_device
 						    struct net_device *dev);
 	/* These may be needed for future network-power-down code. */
 	unsigned long		trans_start;	/* Time (in jiffies) of last Tx	*/
-
+	//网络层确定传输已超时，而调用驱动程序tx_timeout接口的最短时间
 	int			watchdog_timeo; /* used by dev_watchdog() */
 	struct timer_list	watchdog_timer;
 
@@ -778,8 +778,12 @@ static inline void netif_napi_add(struct net_device *dev,
 }
 
 struct packet_type {
+//标识以太网帧或其它链路层报文承载网络层报文的协议号
 	__be16			type;	/* This is really htons(ether_type). */
+//接收从指定网络设备输入的数据包。如果为NULL，则表示接收全部网络设备的数据包
 	struct net_device	*dev;	/* NULL is wildcarded here	     */
+//协议入口接收处理函数。第一个为待输入的报文，第二个参数为当前处理该报文的网络设备，第三个参数为报文类型，
+//第四个参数为报文的原始输入网络设备。通常，当前处理该报文的网络设备就是原始输入的网络设备。
 	int			(*func) (struct sk_buff *,
 					 struct net_device *,
 					 struct packet_type *,
@@ -788,6 +792,7 @@ struct packet_type {
 						int features);
 	int			(*gso_send_check)(struct sk_buff *skb);
 	void			*af_packet_priv;
+	//连接不同协议族报文接收例程的链表
 	struct list_head	list;
 };
 
@@ -886,9 +891,20 @@ static inline int unregister_gifconf(unsigned int family)
  */
 struct softnet_data
 {
+//数据包输出软中断中输出数据包的网络设备队列。
+//报文输出状态的网络设备添加到该队列上，在数据包输出软中断中，
+//历该队列，从网络设备的排队规则中获取数据包并输出。
 	struct net_device	*output_queue;
+/*
+非NAPI的接口缓存队列。对于非NAPI的驱动，通常在硬中断中或通过轮询读取报
+文后，调用netif_rx()将接收到的报文传递到上层，即先将报文缓存到input_pkt_queue队列中，
+然后产生一个数据包输入软中断，由软中断例程将报文传递到上层。这在接口接收数据包的速率比协议栈和应用层快的时候非常有用。队列长度上限参见系统参
+数netdev_max_backlog。
+*/
 	struct sk_buff_head	input_pkt_queue;
+//网络设备轮询队列。处于报文接受状态的网络设备链接到该队列上，在数据报输入软中断中，会遍历该队列，通过轮询方式接受报文。
 	struct list_head	poll_list;
+//完成发送数据包的等待释放队列。需在适当的时机释放发送完成的数据，在发送报文软中断中会检测该队列。
 	struct sk_buff		*completion_queue;
 
 	struct napi_struct	backlog;

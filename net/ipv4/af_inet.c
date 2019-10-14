@@ -232,7 +232,7 @@ void build_ehash_secret(void)
 	} while (rnd == 0);
 	spin_lock_bh(&inetsw_lock);
 	if (!inet_ehash_secret)
-		inet_ehash_secret = rnd;
+		inet_ehash_secret = rnd;  //使用随机数作为加密字符
 	spin_unlock_bh(&inetsw_lock);
 }
 EXPORT_SYMBOL(build_ehash_secret);
@@ -1441,7 +1441,7 @@ static int __init inet_init(void)
 	 */
 
 	ip_init();
-
+	//创建一个内部的TCP套接口,主要用来发送RST段和ACK段
 	tcp_v4_init(&inet_family_ops);
 
 	/* Setup TCP slab cache for open requests. */

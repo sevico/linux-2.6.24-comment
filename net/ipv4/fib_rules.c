@@ -68,6 +68,15 @@ int fib_lookup(struct flowi *flp, struct fib_result *res)
 
 	return err;
 }
+/*
+功能:ipv4的fib rule 的操作函数action
+1.根据rule的action规则决定后续操作，对于支持策略路由而言，我们建立fib rule的
+   action均是FR_ACT_TO_TBL，而对于FR_ACT_UNREACHABLE、FR_ACT_PROHIBIT、FR_ACT_BLACKHOLE等均是
+   返回相应的失败码。而对于FR_ACT_TO_TBL，则需要进一步进行路由项的查找
+2.对于FR_ACT_TO_TBL，则根据fib_rule->table的table id值，调用函数fib_get_table获取相应的路由
+   表，接着就是调用路由表的查找路由函数tb_lookup进行路由项的查找，对于ipv4
+   其路由表的tb_lookup即为函数fn_hash_lookup
+*/
 
 static int fib4_rule_action(struct fib_rule *rule, struct flowi *flp,
 			    int flags, struct fib_lookup_arg *arg)
@@ -113,7 +122,11 @@ void fib_select_default(const struct flowi *flp, struct fib_result *res)
 			tb->tb_select_default(tb, flp, res);
 	}
 }
-
+/*
+这个函数主要是对源ip地址、目的ip地址以及tos的匹配操作。
+(fib rule的添加类似于如下命令:
+# ip rule add fwmark 0x4/0x40004 from  192.168.1.1/32 to 192.168.33.9/24 tos 10 iif br0 table 231)
+*/
 static int fib4_rule_match(struct fib_rule *rule, struct flowi *fl, int flags)
 {
 	struct fib4_rule *r = (struct fib4_rule *) rule;

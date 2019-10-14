@@ -162,9 +162,11 @@ unsigned inet_addr_type(__be32 addr)
 	unsigned ret = RTN_BROADCAST;
 	struct fib_table *local_table;
 	//检查地址是否是零地址或广播地址
+	//若ip地址为0或者是广播地址，则返回RTN_BROADCAST
 	if (ZERONET(addr) || BADCLASS(addr))
 		return RTN_BROADCAST;
 	//检查地址是否是组播地址
+	//若ip地址为组播地址，返回RTN_MULTICAST
 	if (MULTICAST(addr))
 		return RTN_MULTICAST;
 
@@ -173,8 +175,11 @@ unsigned inet_addr_type(__be32 addr)
 #endif
 	//查找本地路由函数表
 	local_table = fib_get_table(RT_TABLE_LOCAL);
+	//若local 路由表存在(肯定存在)，则首先将返回值设置为RTN_UNICAST
 	if (local_table) {
 		ret = RTN_UNICAST;
+		//然后查找该路由表，若找到，则返回该路由项对应的type值，即为RTN_LOCAL；否则
+		//则直接返回ret，即RTN_UNICAST
 		if (!local_table->tb_lookup(local_table, &fl, &res)) {
 			ret = res.type;
 			fib_res_put(&res);
@@ -844,6 +849,8 @@ static int fib_inetaddr_event(struct notifier_block *this, unsigned long event, 
 
 	switch (event) {
 	case NETDEV_UP:
+		//添加了一个新的本地地址后,根据该本地地址添加路由表项到
+		//RT_TABLE_LOCAL路由表中,然后延时刷新路由缓存
 		fib_add_ifaddr(ifa);
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
 		fib_sync_up(ifa->ifa_dev->dev);
@@ -872,16 +879,18 @@ static int fib_netdev_event(struct notifier_block *this, unsigned long event, vo
 
 	if (dev->nd_net != &init_net)
 		return NOTIFY_DONE;
-
+	//如果网络设备注销,则清除该网络设备的网络功能信息和相关功能
 	if (event == NETDEV_UNREGISTER) {
 		fib_disable_ip(dev, 2);
 		return NOTIFY_DONE;
 	}
-
+	//如果网络设备的IP配置块无效,则不做处理
 	if (!in_dev)
 		return NOTIFY_DONE;
 
 	switch (event) {
+	//当激活网络设备时,则根据配置在该设备上的本地地址添加路由表项到
+	//RT_TABLE_LOCAL路由表中,然后延时刷新路由缓存
 	case NETDEV_UP:
 		for_ifa(in_dev) {
 			fib_add_ifaddr(ifa);
@@ -891,9 +900,11 @@ static int fib_netdev_event(struct notifier_block *this, unsigned long event, vo
 #endif
 		rt_cache_flush(-1);
 		break;
+	//当关闭网络设备时,则清除该网络设备的网络功能信息和相关功能
 	case NETDEV_DOWN:
 		fib_disable_ip(dev, 0);
 		break;
+	//当网络设备修改了MTU或状态配置发生变化,则立刻刷新路由缓存
 	case NETDEV_CHANGEMTU:
 	case NETDEV_CHANGE:
 		rt_cache_flush(0);

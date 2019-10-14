@@ -27,6 +27,7 @@ struct inet_peer
 						 * referenced entries */
 	atomic_t		refcnt;
 	atomic_t		rid;		/* Frag reception counter */
+	//记录最后一个ack到达时间
 	__u32			tcp_ts;
 	unsigned long		tcp_ts_stamp;
 };

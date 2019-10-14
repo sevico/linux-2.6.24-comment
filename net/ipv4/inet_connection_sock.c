@@ -89,6 +89,7 @@ int inet_csk_get_port(struct inet_hashinfo *hashinfo,
 	int ret;
 
 	local_bh_disable();
+	//如果端口号没有指定
 	if (!snum) {
 		int remaining, rover, low, high;
 

@@ -1531,6 +1531,7 @@ int gfar_clean_rx_ring(struct net_device *dev, int rx_work_limit)
 
 	while (!((bdp->status & RXBD_EMPTY) || (--rx_work_limit < 0))) {
 		rmb();
+		 //从rx_skbugg[]中获取skb
 		skb = priv->rx_skbuff[priv->skb_currx]; //从rx_skbugg[]中获取skb
 
 		if (!(bdp->status &

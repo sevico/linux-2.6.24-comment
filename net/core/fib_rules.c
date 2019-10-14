@@ -141,15 +141,16 @@ static int fib_rule_match(struct fib_rule *rule, struct fib_rules_ops *ops,
 			  struct flowi *fl, int flags)
 {
 	int ret = 0;
-
+	//判断输入接口的index是否相等
 	if (rule->ifindex && (rule->ifindex != fl->iif))
 		goto out;
-
+	//判断mark值是否相等
 	if ((rule->mark ^ fl->mark) & rule->mark_mask)
 		goto out;
-
+	//调用函数ops->match继续进行fib_rule规则的匹配，对于ipv4，即为函数fib4_rule_match
 	ret = ops->match(rule, fl, flags);
 out:
+	//如果fib_rule的规则是取反时，则返回的结果也需要进行取反操作
 	return (rule->flags & FIB_RULE_INVERT) ? !ret : ret;
 }
 
@@ -160,12 +161,20 @@ int fib_rules_lookup(struct fib_rules_ops *ops, struct flowi *fl,
 	int err;
 
 	rcu_read_lock();
-
+	//传入的ops变量的rules_list链表，对于每一个fib_rule
 	list_for_each_entry_rcu(rule, &ops->rules_list, list) {
 jumped:
+		//  a)调用fib_rule_match进行fib_rule规则匹配
+		//在fib_rule_match中，在完成了通用参数的match后，会调用协议相关的match函数，
+		//对协议相关的参数进行match。而对于ipv4的match函数即为fib4_rule_match
+		//在match到相应的fib rule后，即会调用协议相关的action函数，进行action操作，对于
+		//ipv4而言，即是fib4_rule_action。
 		if (!fib_rule_match(rule, ops, fl, flags))
 			continue;
-
+		// i)当规则匹配后，则调用传入的ops变量的函数指针action进行
+		//路由项的查找(对于ipv4，fib4_rules_ops->action即为fib4_rule_action)，当路由
+		// 查找到后，则会调用fib_rule_get增加对匹配规则的引用计数，并
+		//将arg->rule指向该规则的首地址
 		if (rule->action == FR_ACT_GOTO) {
 			struct fib_rule *target;
 

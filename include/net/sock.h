@@ -231,7 +231,7 @@ struct sock {
 	atomic_t		sk_wmem_alloc;
 	//其他缓冲区队列分配计数
 	atomic_t		sk_omem_alloc;
-	int			sk_sndbuf;
+	int			sk_sndbuf; //发送缓冲区的总长度
 	//套接字缓冲区接收队列
 	struct sk_buff_head	sk_receive_queue;
 	//套接字缓冲区发送队列
@@ -241,21 +241,22 @@ struct sock {
 	int			sk_forward_alloc; //提前分配的空间
 	gfp_t			sk_allocation;  //分配模式
 	int			sk_route_caps;	//网络驱动标志特征
-	int			sk_gso_type;
-	int			sk_rcvlowat;
+	int			sk_gso_type;  //GSO通用分段的类型
+	int			sk_rcvlowat;  //SO_RCVLOWAT设置
 	unsigned long 		sk_flags; //标志
-	unsigned long	        sk_lingertime;
+	//SO_LINGER(l_onoff),SO_BROADCAST,SO_KEEPLIVE,SO_OOBINLINE设置
+	unsigned long	        sk_lingertime; //停留时间,确定关闭时间
 	struct sk_buff_head	sk_error_queue;  //出错的sk_buff队列
-	struct proto		*sk_prot_creator;
+	struct proto		*sk_prot_creator;  //sock创建接口
 	rwlock_t		sk_callback_lock;  //用于回调函数的锁
 	int			sk_err, //错误记录
-				sk_err_soft;
-	unsigned short		sk_ack_backlog;  //当前的真挺队列长度
-	unsigned short		sk_max_ack_backlog;  //最大的侦听队列长度
+				sk_err_soft; //持续出现的错误
+	unsigned short		sk_ack_backlog;  //当前的侦听队列长度
+	unsigned short		sk_max_ack_backlog;  //最大的侦听队列长度(listen中监听的连接数量)
 	__u32			sk_priority;  //优先级
 	struct ucred		sk_peercred;  //SO_PEERCRED设置
-	long			sk_rcvtimeo;  //接收超时定时计数
-	long			sk_sndtimeo;  //发送超时定时计数
+	long			sk_rcvtimeo;  //接收超时定时计数(SO_RCVTIMEO)
+	long			sk_sndtimeo;  //发送超时定时计数(SO_SNDTIMEO)
 	struct sk_filter      	*sk_filter;  //过滤器
 	void			*sk_protinfo;  //私有数据，描述协议族
 	struct timer_list	sk_timer;  //时钟列表
@@ -275,7 +276,7 @@ struct sock {
 	void			(*sk_write_space)(struct sock *sk);
 	//错误发生时的回调函数
 	void			(*sk_error_report)(struct sock *sk);
-	//处理backlog的回调函数
+	//处理backlog(库存数据包)的回调函数
   	int			(*sk_backlog_rcv)(struct sock *sk,
 						  struct sk_buff *skb);
 	//释放struct sock结构的回调函数
