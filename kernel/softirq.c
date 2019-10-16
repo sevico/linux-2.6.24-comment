@@ -217,7 +217,7 @@ asmlinkage void __do_softirq(void)
 	__u32 pending;
 	int max_restart = MAX_SOFTIRQ_RESTART;
 	int cpu;
-
+	// 获取irq_stat[cpu].__softirq_pending的值
 	pending = local_softirq_pending();
 	account_system_vtime(current);
 
@@ -227,12 +227,13 @@ asmlinkage void __do_softirq(void)
 	cpu = smp_processor_id();
 restart:
 	/* Reset the pending bitmask before enabling irqs */
+// 重置irq_stat[cpu].__softirq_pending的值为0，并开启软中断
 	set_softirq_pending(0);
 
 	local_irq_enable();
-
+	//获取软中断向量数据softirq_vec
 	h = softirq_vec;
-
+	//在一个while循环中，对于每一个未处理的软中断，执行softirq_vec中相对应的action处理函数
 	do {
 		if (pending & 1) {
 			h->action(h);
@@ -241,13 +242,15 @@ restart:
 		h++;
 		pending >>= 1;
 	} while (pending);
-
+	//关闭中断，重新读取irq_stat[cpu].__softirq_pending的值，若该值不为0则
 	local_irq_disable();
 
 	pending = local_softirq_pending();
+	//在重复执行的次数没有超过MAX_SOFTIRQ_RESTART，且irq_stat[cpu].__softirq_pending的值不为0
+	//时，重新执行上述的操作
 	if (pending && --max_restart)
 		goto restart;
-
+	// 若已超过MAX_SOFTIRQ_RESTART，则调用wakeup_softirqd，唤醒软中断守护进程，由软中断守护进程继续处理
 	if (pending)
 		wakeup_softirqd();
 
@@ -410,7 +413,7 @@ void fastcall __tasklet_schedule(struct tasklet_struct *t)
 	 * raise_softirq_irqoff激活TASKLET_SOFTIRQ软中断。
 	 * 它与raise_soft相似，但是它假设已经关本地中断了。
 	 */
-	raise_softirq_irqoff(TASKLET_SOFTIRQ);
+	raise_softirq_irqotasklet_actionff(TASKLET_SOFTIRQ);
 	/**
 	 * 恢复IF标志。
 	 */
@@ -435,32 +438,43 @@ EXPORT_SYMBOL(__tasklet_hi_schedule);
 static void tasklet_action(struct softirq_action *a)
 {
 	struct tasklet_struct *list;
-
+	// 关闭软中断，获取运行CPU所对应的tasklet链表的表头，然后将表头置为NULL，再启中断
 	local_irq_disable();
 	list = __get_cpu_var(tasklet_vec).list;
 	__get_cpu_var(tasklet_vec).list = NULL;
 	local_irq_enable();
-
+	//遍历tasklet链表，每次遍历均执行如下操作：
 	while (list) {
+		//获取tasklet链表的一个tasklet变量
 		struct tasklet_struct *t = list;
 
 		list = list->next;
 		//保证某一时刻，最多只有一个 CPU 执行同一个 tasklet 函数
+		//对该tasklet执行加锁操作，即置位TASKLET_STATE_RUN
 		if (tasklet_trylock(t)) {
+			//判断当前tasklet是否使能，若已使能，则执行以下操作
 			if (!atomic_read(&t->count)) {
+				// tasklet的当前状态若为TASKLET_STATE_SCHED，则清空该位
 				if (!test_and_clear_bit(TASKLET_STATE_SCHED, &t->state))
 					BUG();
+				//调用该tasklet的回调处理函数
 				t->func(t->data);
+				// 解锁该tasklet，重新while循环
 				tasklet_unlock(t);
 				continue;
 			}
 			tasklet_unlock(t);
 		}
-
+		//若未使能，则执行以下操作
+		//关闭中断
+		
 		local_irq_disable();
+		//将该tasklet重新加入到链表tasklet_vec
 		t->next = __get_cpu_var(tasklet_vec).list;
 		__get_cpu_var(tasklet_vec).list = t;
+		//开启软中断TASKLET_SOFTIRQ，在 下一次处理该软中断时，再处理该tasklet
 		__raise_softirq_irqoff(TASKLET_SOFTIRQ);
+		//开启中断
 		local_irq_enable();
 	}
 }

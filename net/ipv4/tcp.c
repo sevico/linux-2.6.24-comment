@@ -1115,11 +1115,13 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		size_t len, int nonblock, int flags, int *addr_len)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
+	// copied是指向用户空间拷贝了多少字节，即读了多少
 	int copied = 0;
 	u32 peek_seq;
 	u32 *seq;
 	unsigned long used;
 	int err;
+	// target指的是期望多少字节
 	int target;		/* Read at least this many bytes */
 	long timeo;
 	struct task_struct *user_recv = NULL;
@@ -1133,7 +1135,7 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	err = -ENOTCONN;
 	if (sk->sk_state == TCP_LISTEN)
 		goto out;
-
+	// 等效为timo = nonblock ? 0 : sk->sk_rcvtimeo;
 	timeo = sock_rcvtimeo(sk, nonblock);
 
 	/* Urgent data needs to be handled specially. */
@@ -1145,7 +1147,8 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		peek_seq = tp->copied_seq;
 		seq = &peek_seq;
 	}
-
+	// 如果设置了MSG_WAITALL标识target=需要读的长度
+	// 如果未设置，则为最低低水位值
 	target = sock_rcvlowat(sk, flags & MSG_WAITALL, len);
 
 #ifdef CONFIG_NET_DMA
@@ -1213,8 +1216,9 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 
 		if (copied >= target && !sk->sk_backlog.tail)
 			break;
-
+		// 表明读到数据
 		if (copied) {
+			// 注意，这边只要!timeo，即nonblock设置了就会跳出循环
 			if (sk->sk_err ||
 			    sk->sk_state == TCP_CLOSE ||
 			    (sk->sk_shutdown & RCV_SHUTDOWN) ||
@@ -1244,7 +1248,8 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 				}
 				break;
 			}
-
+			// 到这里，表明没有读到任何数据
+			// 且nonblock设置了导致timeo=0，则返回-EAGAIN,符合我们的预期
 			if (!timeo) {
 				copied = -EAGAIN;
 				break;
@@ -1302,7 +1307,7 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 
 			/* __ Set realtime policy in scheduler __ */
 		}
-
+		// 这边如果读到了期望的数据，继续，否则当前进程阻塞在sk_wait_data上
 		if (copied >= target) {
 			/* Do not sleep, just process backlog. */
 			release_sock(sk);

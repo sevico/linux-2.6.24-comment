@@ -1375,10 +1375,12 @@ int sk_wait_data(struct sock *sk, long *timeo)
 {
 	int rc;
 	DEFINE_WAIT(wait);
-
+	// 将进程状态设置为可打断INTERRUPTIBLE
 	prepare_to_wait(sk->sk_sleep, &wait, TASK_INTERRUPTIBLE);
 	set_bit(SOCK_ASYNC_WAITDATA, &sk->sk_socket->flags);
+	// 通过调用schedule_timeout让出CPU，然后进行睡眠
 	rc = sk_wait_event(sk, timeo, !skb_queue_empty(&sk->sk_receive_queue));
+	// 到这里的时候，有网络事件或超时事件唤醒了此进程，继续运行
 	clear_bit(SOCK_ASYNC_WAITDATA, &sk->sk_socket->flags);
 	finish_wait(sk->sk_sleep, &wait);
 	return rc;
