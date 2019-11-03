@@ -37,8 +37,8 @@ int sysctl_max_syn_backlog = 256;
 int reqsk_queue_alloc(struct request_sock_queue *queue,
 		      unsigned int nr_table_entries)
 {
-	size_t lopt_size = sizeof(struct listen_sock);
-	struct listen_sock *lopt;
+	size_t lopt_size = sizeof(struct listen_sock);//取得监听结构的长度
+	struct listen_sock *lopt;//监听结构变量
 
 	nr_table_entries = min_t(u32, nr_table_entries, sysctl_max_syn_backlog);
 	nr_table_entries = max_t(u32, nr_table_entries, 8);
@@ -63,7 +63,7 @@ int reqsk_queue_alloc(struct request_sock_queue *queue,
 	lopt->nr_table_entries = nr_table_entries;
 
 	write_lock_bh(&queue->syn_wait_lock);
-	queue->listen_opt = lopt;
+	queue->listen_opt = lopt;//连接请求队列记录监听结构
 	write_unlock_bh(&queue->syn_wait_lock);
 
 	return 0;

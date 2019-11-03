@@ -1187,9 +1187,10 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		}
 
 		/* Next get a buffer. */
-
+		// 从接收队列里面获取一个sk_buffer
 		skb = skb_peek(&sk->sk_receive_queue);
 		do {
+			// 如果已经没有数据，直接跳出读取循环，返回0
 			if (!skb)
 				break;
 
@@ -1201,11 +1202,19 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 				       "seq %X\n", *seq, TCP_SKB_CB(skb)->seq);
 				break;
 			}
+			// *seq表示已经读到多少seq
+			// TCP_SKB_CB(skb)->seq表示当前sk_buffer的起始seq
+			// offset即是在当前sk_buffer中已经读取的长度
 			offset = *seq - TCP_SKB_CB(skb)->seq;
+			// syn处理 
 			if (tcp_hdr(skb)->syn)
 				offset--;
+			// 此处判断表示，当前skb还有数据可读，跳转found_ok_skb
 			if (offset < skb->len)
 				goto found_ok_skb;
+			// 处理fin包的情况	
+			// offset == skb->len,跳转到found_fin_ok然后跳出外面的大循环
+			// 并返回0
 			if (tcp_hdr(skb)->fin)
 				goto found_fin_ok;
 			BUG_TRAP(flags & MSG_PEEK);
@@ -1409,8 +1418,9 @@ do_prequeue:
 				}
 			}
 		}
-
+		// tcp已读seq更新
 		*seq += used;
+		// 这次读取的数量更新
 		copied += used;
 		len -= used;
 
@@ -1421,9 +1431,10 @@ skip_copy:
 			tp->urg_data = 0;
 			tcp_fast_path_check(sk);
 		}
+		// 如果还没有读到当前sk_buffer的尽头，则不检测fin标识
 		if (used + offset < skb->len)
 			continue;
-
+		// 如果发现当前skb有fin标识，去found_fin_ok
 		if (tcp_hdr(skb)->fin)
 			goto found_fin_ok;
 		if (!(flags & MSG_PEEK)) {
@@ -1434,6 +1445,7 @@ skip_copy:
 
 	found_fin_ok:
 		/* Process the FIN. */
+		// tcp已读seq++
 		++*seq;
 		if (!(flags & MSG_PEEK)) {
 			sk_eat_skb(sk, skb, copied_early);
@@ -1578,6 +1590,7 @@ void tcp_close(struct sock *sk, long timeout)
 	sk->sk_shutdown = SHUTDOWN_MASK;
 
 	if (sk->sk_state == TCP_LISTEN) {
+		// 如果是listen状态，则直接设为close状态
 		tcp_set_state(sk, TCP_CLOSE);
 
 		/* Special case. */
@@ -1590,6 +1603,7 @@ void tcp_close(struct sock *sk, long timeout)
 	 *  descriptor close, not protocol-sourced closes, because the
 	 *  reader process may not have drained the data yet!
 	 */
+	 // 清空掉recv.buffer
 	while ((skb = __skb_dequeue(&sk->sk_receive_queue)) != NULL) {
 		u32 len = TCP_SKB_CB(skb)->end_seq - TCP_SKB_CB(skb)->seq -
 			  tcp_hdr(skb)->fin;
@@ -1611,10 +1625,13 @@ void tcp_close(struct sock *sk, long timeout)
 		NET_INC_STATS_USER(LINUX_MIB_TCPABORTONCLOSE);
 		tcp_set_state(sk, TCP_CLOSE);
 		tcp_send_active_reset(sk, GFP_KERNEL);
+		// SOCK_LINGER选项的处理
 	} else if (sock_flag(sk, SOCK_LINGER) && !sk->sk_lingertime) {
 		/* Check zero linger _after_ checking for unread data. */
 		sk->sk_prot->disconnect(sk, 0);
 		NET_INC_STATS_USER(LINUX_MIB_TCPABORTONDATA);
+		// tcp_close_state会将sk从established状态变为fin_wait1
+		// 或 tcp_close_state会将sk从close_wait状态变为last_ack
 	} else if (tcp_close_state(sk)) {
 		/* We FIN if the application ate all the data before
 		 * zapping the connection.
@@ -1641,6 +1658,7 @@ void tcp_close(struct sock *sk, long timeout)
 		 * Probably, I missed some more holelets.
 		 * 						--ANK
 		 */
+		 // 发送fin包
 		tcp_send_fin(sk);
 	}
 

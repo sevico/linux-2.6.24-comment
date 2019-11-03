@@ -3409,7 +3409,7 @@ static void tcp_reset(struct sock *sk)
 static void tcp_fin(struct sk_buff *skb, struct sock *sk, struct tcphdr *th)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
-
+	// 这一句表明当前socket有ack需要发送
 	inet_csk_schedule_ack(sk);
 
 	sk->sk_shutdown |= RCV_SHUTDOWN;
@@ -3419,7 +3419,10 @@ static void tcp_fin(struct sk_buff *skb, struct sock *sk, struct tcphdr *th)
 		case TCP_SYN_RECV:
 		case TCP_ESTABLISHED:
 			/* Move to CLOSE_WAIT */
+		// 状态设置程close_wait状态
 			tcp_set_state(sk, TCP_CLOSE_WAIT);
+		// 这一句表明，当前fin可以延迟发送
+		// 即和后面的数据一起发送或者定时器到时后发送
 			inet_csk(sk)->icsk_ack.pingpong = 1;
 			break;
 
@@ -3438,11 +3441,13 @@ static void tcp_fin(struct sk_buff *skb, struct sock *sk, struct tcphdr *th)
 			 * happens, we must ack the received FIN and
 			 * enter the CLOSING state.
 			 */
+			 // 这边是处理同时关闭的情况
 			tcp_send_ack(sk);
 			tcp_set_state(sk, TCP_CLOSING);
 			break;
 		case TCP_FIN_WAIT2:
 			/* Received a FIN -- send ACK and enter TIME_WAIT. */
+			// 收到FIN之后，发送ACK同时将状态进入TIME_WAIT
 			tcp_send_ack(sk);
 			tcp_time_wait(sk, TCP_TIME_WAIT, 0);
 			break;
@@ -5114,7 +5119,9 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 			break;
 
 		case TCP_FIN_WAIT1:
+			// 这处判断是确认此ack是发送Fin包对应的那个ack
 			if (tp->snd_una == tp->write_seq) {
+				// 设置为FIN_WAIT2状态
 				tcp_set_state(sk, TCP_FIN_WAIT2);
 				sk->sk_shutdown |= SEND_SHUTDOWN;
 				dst_confirm(sk->sk_dst_cache);
@@ -5145,6 +5152,8 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 						 */
 						inet_csk_reset_keepalive_timer(sk, tmo);
 					} else {
+						// 设定TCP_FIN_WAIT2定时器，将在tmo时间到期后将状态变迁为TIME_WAIT
+				// 不过是这时候改的已经是inet_timewait_sock了
 						tcp_time_wait(sk, TCP_FIN_WAIT2, tmo);
 						goto discard;
 					}
@@ -5160,8 +5169,10 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 			break;
 
 		case TCP_LAST_ACK:
+			// 这处判断是确认此ack是发送Fin包对应的那个ack
 			if (tp->snd_una == tp->write_seq) {
 				tcp_update_metrics(sk);
+				// 设置socket为closed，并回收socket的资源
 				tcp_done(sk);
 				goto discard;
 			}

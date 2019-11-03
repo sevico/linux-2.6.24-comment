@@ -35,20 +35,29 @@
 #define ipt_get_revision xt_get_revision
 
 /* Yes, Virginia, you have to zero the padding. */
+/*
+标准匹配时的匹配条件
+*/
+
 struct ipt_ip {
 	/* Source and destination IP addr */
 	struct in_addr src, dst;
 	/* Mask for src and dest IP addr */
+	/* 源、目的ip地址的掩码*/
 	struct in_addr smsk, dmsk;
+	/*数据包入口、出口的网络接口名称*/
 	char iniface[IFNAMSIZ], outiface[IFNAMSIZ];
+	/*入口、出口的网络接口掩码*/
 	unsigned char iniface_mask[IFNAMSIZ], outiface_mask[IFNAMSIZ];
 
 	/* Protocol, 0 = ANY */
+	/*协议号*/
 	u_int16_t proto;
 
 	/* Flags word */
 	u_int8_t flags;
 	/* Inverse flags */
+	/*是否是反转匹配*/
 	u_int8_t invflags;
 };
 
@@ -84,17 +93,23 @@ struct ipt_entry
 	unsigned int nfcache;
 
 	/* Size of ipt_entry + matches */
+	/*该规则中target结构相对于该ipt_entry首地址的偏移量*/
 	u_int16_t target_offset;
 	/* Size of ipt_entry + matches + target */
+	/* 下一个规则相对于该ipt_entry首地址的偏移量*/
 	u_int16_t next_offset;
 
 	/* Back pointer */
+	/* 这个变量的用途有两个：
+1.判断table表中的规则链是否存在环路
+2.遍历规则链链时，用于用户自定义链的规则执行完时返回到主链时使用*/
 	unsigned int comefrom;
 
 	/* Packet and byte counters. */
 	struct xt_counters counters;
 
 	/* The matches (if any), then the target. */
+	/*由于在设计时需要match结构与ipt_entry的内存是连续的，但是一个ipt_entry包含的match个数又是可变的，所以定义了一个可变长度数组elems，主要是为了实现动态的申请match内存空间*/
 	unsigned char elems[0];
 };
 
@@ -172,22 +187,30 @@ struct ipt_getinfo
 struct ipt_replace
 {
 	/* Which table. */
+	/*表的名称*/
 	char name[IPT_TABLE_MAXNAMELEN];
 
 	/* Which hook entry points are valid: bitmask.  You can't
            change this. */
+     /*该表所支持的hook点*/
 	unsigned int valid_hooks;
 
 	/* Number of entries */
+	/*规则个数*/
 	unsigned int num_entries;
 
 	/* Total size of new entries */
+	/*所有规则的内存大小*/
 	unsigned int size;
 
 	/* Hook entry points. */
+	/*每条规则链相对于第一条规则链的偏移量*/
 	unsigned int hook_entry[NF_IP_NUMHOOKS];
 
 	/* Underflow points. */
+	/*这个具体用在什么地方我还没有搞懂，看别人的解释为每一条规则链范围的最大
+上限，不过我看初始化时，其与hook_entry在对应规则链上的值是相等的，目前我在代码里发现对underflow的调用，基本上都是将其与hook_entry在对应规则链上的值设置为
+相同的，还需要深入分析后确认*/
 	unsigned int underflow[NF_IP_NUMHOOKS];
 
 	/* Information about old entries: */

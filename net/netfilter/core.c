@@ -160,6 +160,16 @@ unsigned int nf_iterate(struct list_head *head,
 
 /* Returns 1 if okfn() needs to be executed by the caller,
  * -EPERM for NF_DROP, 0 otherwise. */
+ //真正干活的函数，真正遍历hook链表并执行hook回调函数
+ /*
+ pf:协议号
+hook:hook点
+pskb:数据包
+indev:数据包入口函数
+outdev:数据包出口函数
+okfn:回调函数(此处不执行)
+hook_thresh:起始优先级，只执行该hook点上优先级大于该值所有hook函数
+ */
 int nf_hook_slow(int pf, unsigned int hook, struct sk_buff *skb,
 		 struct net_device *indev,
 		 struct net_device *outdev,
@@ -177,14 +187,20 @@ int nf_hook_slow(int pf, unsigned int hook, struct sk_buff *skb,
 next_hook:
 	verdict = nf_iterate(&nf_hooks[pf][hook], skb, hook, indev,
 			     outdev, &elem, okfn, hook_thresh);
+	//若返回值为NF_ACCEPT、NF_STOP，则返回1表示允许数据包继续前行
 	if (verdict == NF_ACCEPT || verdict == NF_STOP) {
 		ret = 1;
 		goto unlock;
+	//若调用nf_iterate的返回值是NF_DROP，则释放skb，且返回错误
 	} else if (verdict == NF_DROP) {
 		kfree_skb(skb);
 		ret = -EPERM;
+		//若是NF_QUEUE，则将数据放到netfilter的队列中，数据包可以从内核传递到
+		//用户层处理，并将处理结果返回
 	} else if ((verdict & NF_VERDICT_MASK)  == NF_QUEUE) {
 		NFDEBUG("nf_hook: Verdict = QUEUE.\n");
+		/*nf_queue 是 netfilter 的基本机制--队列模型,
+可以经内核数据包递交到用户层处理，并根据用户态的处理结果，对数据包进行相应的操作*/
 		if (!nf_queue(skb, elem, pf, hook, indev, outdev, okfn,
 			      verdict >> NF_VERDICT_BITS))
 			goto next_hook;

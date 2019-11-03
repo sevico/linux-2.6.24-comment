@@ -48,27 +48,28 @@
 
 struct fib_nh;
 struct inet_peer;
+//路由表结构
 struct rtable
 {
 	union
 	{
 		struct dst_entry	dst;
-	} u;
+	} u; //包含的路由项
 
 	/* Cache lookup keys */
-	struct flowi		fl;
+	struct flowi		fl; //路由键值
 
-	struct in_device	*idev;
+	struct in_device	*idev;  //IPv4协议配置网络设备的结构
 	
-	unsigned		rt_flags;
-	__u16			rt_type;
+	unsigned		rt_flags;  //路由标志
+	__u16			rt_type;  //路由类型
 
 	__be32			rt_dst;	/* Path destination	*/
 	__be32			rt_src;	/* Path source		*/
-	int			rt_iif;
+	int			rt_iif;  //路由的接收设备
 
 	/* Info on neighbour */
-	__be32			rt_gateway;
+	__be32			rt_gateway;//路由网关
 
 	/* Miscellaneous cached information */
 	__be32			rt_spec_dst; /* RFC1122 specific destination */

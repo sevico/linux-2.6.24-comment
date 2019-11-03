@@ -1151,7 +1151,11 @@ asmlinkage long sys_close(unsigned int fd)
 		goto out_unlock;
 	//清空fd 和对应的位图项
 	rcu_assign_pointer(fdt->fd[fd], NULL);
+	// 清除(close_on_exec即退出进程时）的位图标记
 	FD_CLR(fd, fdt->close_on_exec);
+	// 释放文件描述符
+	// 将fdt->open_fds即打开的fd位图中对应的位清除
+	// 再将fd挂入下一个可使用的fd以便复用
 	__put_unused_fd(files, fd);
 	spin_unlock(&files->file_lock);
 	//关闭文件

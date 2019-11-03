@@ -45,39 +45,53 @@ struct mac_addr
 {
 	unsigned char	addr[6];
 };
-
+//转发数据表项
 struct net_bridge_fdb_entry
 {
+	/*将该表项链接到hash表头的指针*/
 	struct hlist_node		hlist;
+	/*指向目的网桥端口*/
 	struct net_bridge_port		*dst;
 
 	struct rcu_head			rcu;
 	atomic_t			use_count;
+	/*aging定时器*/
 	unsigned long			ageing_timer;
+	/*mac地址*/
 	mac_addr			addr;
+	/*是否是本地mac地址*/
 	unsigned char			is_local;
+	/*mac地址是否为静态的标志*/
 	unsigned char			is_static;
 };
 
 struct net_bridge_port
 {
+	/*指向该网桥端口所绑定的网桥*/
 	struct net_bridge		*br;
+	/*指向该网桥端口所绑定的网络设备*/
 	struct net_device		*dev;
+	/*用于将该网桥端口链接到网桥的port_list链表的指针*/
 	struct list_head		list;
 
 	/* STP */
+	/*端口优先级*/
 	u8				priority;
+	/*端口状态，在对数据进行转发时会对该state值进行判断*/
 	u8				state;
+	/*端口号*/
 	u16				port_no;
 	unsigned char			topology_change_ack;
 	unsigned char			config_pending;
+	/*端口ID*/
 	port_id				port_id;
 	port_id				designated_port;
 	bridge_id			designated_root;
 	bridge_id			designated_bridge;
+	/*端口路径开销*/
 	u32				path_cost;
 	u32				designated_cost;
-
+	/*网桥端口定时器*/
 	struct timer_list		forward_delay_timer;
 	struct timer_list		hold_timer;
 	struct timer_list		message_age_timer;
@@ -87,11 +101,16 @@ struct net_bridge_port
 
 struct net_bridge
 {
+	//自旋锁，在向net_bridge中增加port节点或改变net_bridge结构时使用
 	spinlock_t			lock;
+	//网桥端口列表
 	struct list_head		port_list;
+	//网桥设备
 	struct net_device		*dev;
 	struct net_device_stats		statistics;
+	//对hash转发库进行操作时需要使用该自旋锁
 	spinlock_t			hash_lock;
+	//转发数据库hash表
 	struct hlist_head		hash[BR_HASH_SIZE];
 	struct list_head		age_list;
 	unsigned long			feature_mask;
@@ -100,15 +119,19 @@ struct net_bridge
 	bridge_id			designated_root;
 	bridge_id			bridge_id;
 	u32				root_path_cost;
+	/*网桥定时器*/
 	unsigned long			max_age;
 	unsigned long			hello_time;
 	unsigned long			forward_delay;
+	/*本地配置的网桥定时器*/
 	unsigned long			bridge_max_age;
+	/*转发数据表项未被使用时可以待在转发数据库里的最大时间*/
 	unsigned long			ageing_time;
 	unsigned long			bridge_hello_time;
 	unsigned long			bridge_forward_delay;
 
 	u8				group_addr[ETH_ALEN];
+	//根端口的端口号
 	u16				root_port;
 
 	enum {
@@ -119,7 +142,7 @@ struct net_bridge
 
 	unsigned char			topology_change;
 	unsigned char			topology_change_detected;
-
+	/*网桥定时器*/
 	struct timer_list		hello_timer;
 	struct timer_list		tcn_timer;
 	struct timer_list		topology_change_timer;

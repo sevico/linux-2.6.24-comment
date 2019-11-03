@@ -10,7 +10,7 @@
 /*
  *	Our network namespace constructor/destructor lists
  */
-
+//每一个新注册的网络协议模块都会添加到该链表中。
 static LIST_HEAD(pernet_list);
 static struct list_head *first_device = &pernet_list;
 static DEFINE_MUTEX(net_mutex);
@@ -194,10 +194,13 @@ static int register_pernet_operations(struct list_head *list,
 {
 	struct net *net, *undo_net;
 	int error;
-
+	//将一个网络协议模块对应的数据结构pernet_operations添加到
+    //网络空间链路pernet_list的尾部
 	list_add_tail(&ops->list, list);
 	if (ops->init) {
 		for_each_net(net) {
+			//然后调用for_each_net，为每一个网络命名空间，都执行该网络协议模块的init函数，执行
+			//一些初始化操作，并在/proc/NameSpace/下生成一个该网络协议模块对应的proc文件或者proc目录 
 			error = ops->init(net);
 			if (error)
 				goto out_undo;

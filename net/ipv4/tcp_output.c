@@ -2084,6 +2084,7 @@ void tcp_send_fin(struct sock *sk)
 		/* Reserve space for headers and prepare control bits. */
 		skb_reserve(skb, MAX_TCP_HEADER);
 		skb->csum = 0;
+		// 这边设置flags为ack和fin
 		TCP_SKB_CB(skb)->flags = (TCPCB_FLAG_ACK | TCPCB_FLAG_FIN);
 		TCP_SKB_CB(skb)->sacked = 0;
 		skb_shinfo(skb)->gso_segs = 1;
@@ -2095,6 +2096,7 @@ void tcp_send_fin(struct sock *sk)
 		TCP_SKB_CB(skb)->end_seq = TCP_SKB_CB(skb)->seq + 1;
 		tcp_queue_skb(sk, skb);
 	}
+	// 发送fin包，同时关闭nagle
 	__tcp_push_pending_frames(sk, mss_now, TCP_NAGLE_OFF);
 }
 
@@ -2280,7 +2282,7 @@ static void tcp_connect_init(struct sock *sk)
 	 * See tcp_input.c:tcp_rcv_state_process case TCP_SYN_SENT.
 	 */
 	tp->tcp_header_len = sizeof(struct tcphdr) +
-		(sysctl_tcp_timestamps ? TCPOLEN_TSTAMP_ALIGNED : 0);
+		(sysctl_tcp_timestamps ? TCPOLEN_TSTAMP_ALIGNED : 0);//记录头部长度
 
 #ifdef CONFIG_TCP_MD5SIG
 	if (tp->af_specific->md5_lookup(sk, sk) != NULL)
@@ -2289,9 +2291,9 @@ static void tcp_connect_init(struct sock *sk)
 
 	/* If user gave his TCP_MAXSEG, record it to clamp */
 	if (tp->rx_opt.user_mss)
-		tp->rx_opt.mss_clamp = tp->rx_opt.user_mss;
-	tp->max_window = 0;
-	tcp_mtup_init(sk);
+		tp->rx_opt.mss_clamp = tp->rx_opt.user_mss;//记录指定的MSS值
+	tp->max_window = 0;//最大窗口值
+	tcp_mtup_init(sk);//初始化MTU内容
 	tcp_sync_mss(sk, dst_mtu(dst));
 
 	if (!tp->window_clamp)

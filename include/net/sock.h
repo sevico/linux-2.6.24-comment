@@ -1233,7 +1233,9 @@ static inline unsigned long sock_wspace(struct sock *sk)
 
 static inline void sk_wake_async(struct sock *sk, int how, int band)
 {
+//检查socket的异步队列
 	if (sk->sk_socket && sk->sk_socket->fasync_list)
+		//异步唤醒进程
 		sock_wake_async(sk->sk_socket, how, band);
 }
 

@@ -391,67 +391,69 @@ struct neighbour *neigh_create(struct neigh_table *tbl, const void *pkey,
 			       struct net_device *dev)
 {
 	u32 hash_val;
-	int key_len = tbl->key_len;
+	int key_len = tbl->key_len;//取得IP地址长度作为键值
 	int error;
-	struct neighbour *n1, *rc, *n = neigh_alloc(tbl);
+	struct neighbour *n1, *rc, *n = neigh_alloc(tbl);  //分配邻居结构
 
-	if (!n) {
+	if (!n) {  //分配失败则返回
 		rc = ERR_PTR(-ENOBUFS);
 		goto out;
 	}
-
+	//复制地址到邻居结构中
 	memcpy(n->primary_key, pkey, key_len);
-	n->dev = dev;
-	dev_hold(dev);
+	n->dev = dev; //记录网络设备
+	dev_hold(dev);  //增加设备的计数器
 
 	/* Protocol specific setup. */
+	//执行构造函数
 	if (tbl->constructor &&	(error = tbl->constructor(n)) < 0) {
 		rc = ERR_PTR(error);
 		goto out_neigh_release;
 	}
 
 	/* Device specific setup. */
+	//如果指定了安装函数就执行它
 	if (n->parms->neigh_setup &&
 	    (error = n->parms->neigh_setup(n)) < 0) {
 		rc = ERR_PTR(error);
 		goto out_neigh_release;
 	}
-
+	//确定时间
 	n->confirmed = jiffies - (n->parms->base_reachable_time << 1);
 
 	write_lock_bh(&tbl->lock);
-
+	//如果邻居结构数量超过了哈希桶的长度
 	if (atomic_read(&tbl->entries) > (tbl->hash_mask + 1))
-		neigh_hash_grow(tbl, (tbl->hash_mask + 1) << 1);
+		neigh_hash_grow(tbl, (tbl->hash_mask + 1) << 1);  //调整哈希桶
 
-	hash_val = tbl->hash(pkey, dev) & tbl->hash_mask;
+	hash_val = tbl->hash(pkey, dev) & tbl->hash_mask;//计算哈希值
 
-	if (n->parms->dead) {
+	if (n->parms->dead) {  //邻居参数结构失效
 		rc = ERR_PTR(-EINVAL);
 		goto out_tbl_unlock;
 	}
-
+	//在哈希桶中查找要插入的队列
 	for (n1 = tbl->hash_buckets[hash_val]; n1; n1 = n1->next) {
 		if (dev == n1->dev && !memcmp(n1->primary_key, pkey, key_len)) {
 			neigh_hold(n1);
-			rc = n1;
+			rc = n1;  //记录相同地址和设备的邻居结构,直接返回找到的邻居结构
 			goto out_tbl_unlock;
 		}
 	}
 
-	n->next = tbl->hash_buckets[hash_val];
-	tbl->hash_buckets[hash_val] = n;
-	n->dead = 0;
-	neigh_hold(n);
+	n->next = tbl->hash_buckets[hash_val];//指向队列中下一个邻居结构
+	tbl->hash_buckets[hash_val] = n;//链入哈希桶
+	n->dead = 0;//清除删除标志
+	neigh_hold(n);  //递增使用计数器
 	write_unlock_bh(&tbl->lock);
 	NEIGH_PRINTK2("neigh %p is created.\n", n);
-	rc = n;
+	rc = n;//记录新创建的邻居结构
 out:
 	return rc;
 out_tbl_unlock:
 	write_unlock_bh(&tbl->lock);
 out_neigh_release:
-	neigh_release(n);
+	neigh_release(n);//找到了相同的邻居结构就释放新建的
 	goto out;
 }
 
@@ -1391,18 +1393,19 @@ void neigh_table_init_no_netlink(struct neigh_table *tbl)
 void neigh_table_init(struct neigh_table *tbl)
 {
 	struct neigh_table *tmp;
-
+	//初始化邻居表
 	neigh_table_init_no_netlink(tbl);
 	write_lock(&neigh_tbl_lock);
 	for (tmp = neigh_tables; tmp; tmp = tmp->next) {
-		if (tmp->family == tbl->family)
+		if (tmp->family == tbl->family)  //查找相同地址族的邻居表
 			break;
 	}
-	tbl->next	= neigh_tables;
-	neigh_tables	= tbl;
+	//将邻居表插入到队列的前面
+	tbl->next	= neigh_tables;//指向下一个邻居表
+	neigh_tables	= tbl;//放在队列前面
 	write_unlock(&neigh_tbl_lock);
 
-	if (unlikely(tmp)) {
+	if (unlikely(tmp)) { //如果找到了相同地址族邻居表就打印错误信息
 		printk(KERN_ERR "NEIGH: Registering multiple tables for "
 		       "family %d\n", tbl->family);
 		dump_stack();

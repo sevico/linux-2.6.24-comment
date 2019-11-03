@@ -280,6 +280,7 @@ void tcp_time_wait(struct sock *sk, int state, int timeo)
 		recycle_ok = icsk->icsk_af_ops->remember_stamp(sk);
 
 	if (tcp_death_row.tw_count < tcp_death_row.sysctl_max_tw_buckets)
+		// 建立inet_timewait_sock
 		tw = inet_twsk_alloc(sk, state);
 
 	if (tw != NULL) {
@@ -341,7 +342,7 @@ void tcp_time_wait(struct sock *sk, int state, int timeo)
 			if (state == TCP_TIME_WAIT)
 				timeo = TCP_TIMEWAIT_LEN;
 		}
-
+		// 放到bucket的具体位置等待定时器删除
 		inet_twsk_schedule(tw, &tcp_death_row, timeo,
 				   TCP_TIMEWAIT_LEN);
 		inet_twsk_put(tw);
@@ -354,6 +355,7 @@ void tcp_time_wait(struct sock *sk, int state, int timeo)
 	}
 
 	tcp_update_metrics(sk);
+	// 设置sk状态为TCP_CLOSE,然后回收sk资源
 	tcp_done(sk);
 }
 

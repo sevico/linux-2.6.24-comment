@@ -221,9 +221,10 @@ void fastcall __fput(struct file *file)
 	 * The function eventpoll_release() should be the first called
 	 * in the file cleanup chain.
 	 */
+	 // 从eventpoll中释放file
 	eventpoll_release(file);
 	locks_remove_flock(file);
-
+	// 如果有release方法，则调用release
 	if (file->f_op && file->f_op->release)
 		file->f_op->release(inode, file);
 	security_file_free(file);

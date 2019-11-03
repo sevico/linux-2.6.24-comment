@@ -42,18 +42,26 @@ struct request_sock_ops {
 
 /* struct request_sock - mini sock to represent a connection request
  */
-struct request_sock {
+struct request_sock {//连接请求结构
+//指向下一个连接请求结构
 	struct request_sock		*dl_next; /* Must be first member! */
+//MSS值
 	u16				mss;
+//重发次数
 	u8				retrans;
 	u8				__pad;
 	/* The following two fields can be easily recomputed I think -AK */
+	//窗口创建时间
 	u32				window_clamp; /* window clamp at creation time */
 	u32				rcv_wnd;	  /* rcv_wnd offered first time */
 	u32				ts_recent;
+	//过期时间
 	unsigned long			expires;
+	//连接请求函数表
 	const struct request_sock_ops	*rsk_ops;
+	//记录该连接请求的sock
 	struct sock			*sk;
+	//这两个变量用于XFRM,参考secid.txt
 	u32				secid;
 	u32				peer_secid;
 };
@@ -116,6 +124,7 @@ struct request_sock_queue {
 	struct request_sock	*rskq_accept_head;
 	struct request_sock	*rskq_accept_tail;
 	rwlock_t		syn_wait_lock;
+	//默认重新SYN的数量
 	u8			rskq_defer_accept;
 	/* 3 bytes hole, try to pack */
 	struct listen_sock	*listen_opt;

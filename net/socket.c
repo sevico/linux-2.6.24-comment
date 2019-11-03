@@ -999,56 +999,57 @@ static int sock_fasync(int fd, struct file *filp, int on)
 	struct fasync_struct *fa, *fna = NULL, **prev;
 	struct socket *sock;
 	struct sock *sk;
-
+//on控制从创建,修改或删除异步结构
 	if (on) {
 		fna = kmalloc(sizeof(struct fasync_struct), GFP_KERNEL);
 		if (fna == NULL)
 			return -ENOMEM;
 	}
 
-	sock = filp->private_data;
+	sock = filp->private_data;//获得socket结构
 
-	sk = sock->sk;
+	sk = sock->sk;//获取sock结构
 	if (sk == NULL) {
 		kfree(fna);
 		return -EINVAL;
 	}
-
+	//加锁,如果sock锁被其他进程占用了,当前进程睡眠等待唤醒
 	lock_sock(sk);
-
+	//获取队列中的第一个异步结构指针
 	prev = &(sock->fasync_list);
 
 	for (fa = *prev; fa != NULL; prev = &fa->fa_next, fa = *prev)
-		if (fa->fa_file == filp)
+		if (fa->fa_file == filp)//查找异步结构
 			break;
 
-	if (on) {
+	if (on) {//如果允许创建或者修改
 		if (fa != NULL) {
 			write_lock_bh(&sk->sk_callback_lock);
-			fa->fa_fd = fd;
+			fa->fa_fd = fd;//记录文件号
 			write_unlock_bh(&sk->sk_callback_lock);
 
 			kfree(fna);
 			goto out;
 		}
-		fna->fa_file = filp;
-		fna->fa_fd = fd;
-		fna->magic = FASYNC_MAGIC;
-		fna->fa_next = sock->fasync_list;
-		write_lock_bh(&sk->sk_callback_lock);
-		sock->fasync_list = fna;
-		write_unlock_bh(&sk->sk_callback_lock);
-	} else {
-		if (fa != NULL) {
+		//没有找到就使用新建的异步结构
+		fna->fa_file = filp;//记录关联文件指针
+		fna->fa_fd = fd;//记录文件号
+		fna->magic = FASYNC_MAGIC;//设置魔术
+		fna->fa_next = sock->fasync_list;//指向下一个异步结构
+		write_lock_bh(&sk->sk_callback_lock);//加锁
+		sock->fasync_list = fna;//链入队列首部
+		write_unlock_bh(&sk->sk_callback_lock);//解锁
+	} else {//不允许创建和修改就是删除操作
+		if (fa != NULL) {//找到了socket的异步结构
 			write_lock_bh(&sk->sk_callback_lock);
-			*prev = fa->fa_next;
+			*prev = fa->fa_next;//将找到的异步结构脱队
 			write_unlock_bh(&sk->sk_callback_lock);
-			kfree(fa);
+			kfree(fa);//释放找到的异步结构
 		}
 	}
 
 out:
-	release_sock(sock->sk);
+	release_sock(sock->sk);//解锁,并唤醒sock锁上的其他进程
 	return 0;
 }
 
@@ -1058,13 +1059,14 @@ int sock_wake_async(struct socket *sock, int how, int band)
 {
 	if (!sock || !sock->fasync_list)
 		return -1;
-	switch (how) {
+	switch (how) {//异步操作码
+	//异步唤醒等待进程
 	case 1:
-
+		//检查对应标志
 		if (test_bit(SOCK_ASYNC_WAITDATA, &sock->flags))
 			break;
 		goto call_kill;
-	case 2:
+	case 2://异步唤醒等待空间进程
 		if (!test_and_clear_bit(SOCK_ASYNC_NOSPACE, &sock->flags))
 			break;
 		/* fall through */
@@ -1072,7 +1074,7 @@ int sock_wake_async(struct socket *sock, int how, int band)
 call_kill:
 		__kill_fasync(sock->fasync_list, SIGIO, band);
 		break;
-	case 3:
+	case 3://紧急IO唤醒
 		__kill_fasync(sock->fasync_list, SIGURG, band);
 	}
 	return 0;
@@ -1379,7 +1381,7 @@ asmlinkage long sys_listen(int fd, int backlog)
 {
 	struct socket *sock;
 	int err, fput_needed;
-
+	//根据文件号找到服务器socket
 	sock = sockfd_lookup_light(fd, &err, &fput_needed);
 	if (sock) {
 		if ((unsigned)backlog > sysctl_somaxconn)
@@ -1387,7 +1389,7 @@ asmlinkage long sys_listen(int fd, int backlog)
 
 		err = security_socket_listen(sock, backlog);
 		if (!err)
-			err = sock->ops->listen(sock, backlog);
+			err = sock->ops->listen(sock, backlog);//执行具体协议的监听函数
 
 		fput_light(sock->file, fput_needed);
 	}

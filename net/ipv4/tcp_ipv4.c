@@ -176,14 +176,15 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 	__be32 daddr, nexthop;
 	int tmp;
 	int err;
-
+	//地址长度是否相符
 	if (addr_len < sizeof(struct sockaddr_in))
 		return -EINVAL;
-
+	//是否属于INET协议
 	if (usin->sin_family != AF_INET)
 		return -EAFNOSUPPORT;
-
+	//记录服务器IP地址
 	nexthop = daddr = usin->sin_addr.s_addr;
+	//是否设置了IP选项结构,并指定了源路由
 	if (inet->opt && inet->opt->srr) {
 		if (!daddr)
 			return -EINVAL;

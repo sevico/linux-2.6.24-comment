@@ -82,7 +82,9 @@ struct fn_zone {
  */
 
 struct fn_hash {
+	//以网络掩码区分不同的子网，此处每一个fn_zone，代表网络掩码相同的子网
 	struct fn_zone	*fn_zones[33];
+	//fn_zone的链表头存储在该结构体中
 	struct fn_zone	*fn_zone_list;
 };
 
@@ -274,17 +276,25 @@ fn_hash_lookup(struct fib_table *tb, const struct flowi *flp, struct fib_result 
 {
 	int err;
 	struct fn_zone *fz;
+	//fn_table->tb_data 就是 fn_hash　结构
 	struct fn_hash *t = (struct fn_hash*)tb->tb_data;
 
 	read_lock(&fib_hash_lock);
 	//遍历路由表结构fib_table变量指向的fn_hash变量的fn_zone_list链表
+    //遍历可用的fz_zone列表
 	for (fz = t->fn_zone_list; fz; fz = fz->fz_next) {
 		struct hlist_head *head;
 		struct hlist_node *node;
 		struct fib_node *f;
 		//根据目的ip地址与fn_zone变量，构建搜索关键字k
+		//通过目的地址，计算出所要查找的fn_key
+		//对于本地接收路由，它就是代表本地网络设备接口的IP地址，如172.16.48.2，对于子网单播，它就是子网号，比如172.16.48.0
 		__be32 k = fz_key(flp->fl4_dst, fz);
 		//遍历该fn_zone变量的hash链表指针fz_hash的每一个hash表项
+		//fz_hash实际上是一个哈希表，每个数组单元存储了一个fib_node链表的头指针
+		//fn_new_zone函数用于创建一个新的fz_zone,可以看到fz_hash的初始化过程:
+		//fz->fz_hash = fz_hash_alloc(fz->fz_divisor); 所以，fz_hash的长度是由fz_divisor成员指定的
+		//这个操作取得了fib_node链头指针
 		head = &fz->fz_hash[fn_hash(k, fz)];
 		hlist_for_each_entry(f, node, head, fn_hash) {
 			if (f->fn_key != k)
@@ -439,6 +449,7 @@ static int fn_hash_insert(struct fib_table *tb, struct fib_config *cfg)
 
 	key = 0;
 	//是否设置了地址
+	/* 如果指定了目的地址，如果目的地址主机位不为0，则出错返回 */
 	if (cfg->fc_dst) {
 		if (cfg->fc_dst & ~FZ_MASK(fz))
 			return -EINVAL;
@@ -450,12 +461,16 @@ static int fn_hash_insert(struct fib_table *tb, struct fib_config *cfg)
 		return PTR_ERR(fi);
 	//fz_hash散列表容量可能发生变化,需要重建散列表
 	//判断是否需要对已查找到的fn_zone变量的hash数组进行容量扩充
+		/* 如果当前路由域中路由节点的数目大于散列表大小的两倍，
+		并且相关数据都合法的情况下，需要重构散列表以减小
+		哈希碰撞 */
 	if (fz->fz_nent > (fz->fz_divisor<<1) &&
 	    fz->fz_divisor < FZ_MAX_DIVISOR &&
 	    (cfg->fc_dst_len == 32 ||
 	     (1 << cfg->fc_dst_len) > fz->fz_divisor))
 		fn_rehash_zone(fz);
 	//根据key获取目的网络对应的fib_node实例,然后进一步根据tos和优先级匹配对应的fib_alias实例
+	/* 通过网络号key找出对应的路由节点fn_node */
 	f = fib_find_node(fz, key);
 
 	if (!f)
@@ -498,6 +513,8 @@ c)对于不满足上面a)、b)两点，则表示是需要添加的路由，此�
 		struct fib_alias *fa_orig;
 
 		err = -EEXIST;
+		/* 如果具有与新建路由项相同属性的fib_alias存在，并且添加路由项标志中
+		设置了NLM_F_EXCL(排它选项)，则返回路由已存在 */
 		if (cfg->fc_nlflags & NLM_F_EXCL)
 			goto out;
 

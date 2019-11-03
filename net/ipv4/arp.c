@@ -171,13 +171,13 @@ struct neigh_ops arp_broken_ops = {
 };
 
 struct neigh_table arp_tbl = {
-	.family =	AF_INET,
-	.entry_size =	sizeof(struct neighbour) + 4,
-	.key_len =	4,
-	.hash =		arp_hash,
-	.constructor =	arp_constructor,
-	.proxy_redo =	parp_redo,
-	.id =		"arp_cache",
+	.family =	AF_INET,//地址族
+	.entry_size =	sizeof(struct neighbour) + 4,//邻居结构的长度
+	.key_len =	4,  //IP地址的长度
+	.hash =		arp_hash,//哈希函数指针
+	.constructor =	arp_constructor,  //创建邻居结构的函数指针
+	.proxy_redo =	parp_redo, //处理函数指针
+	.id =		"arp_cache", //协议名称作为id
 	.parms = {
 		.tbl =			&arp_tbl,
 		.base_reachable_time =	30 * HZ,
@@ -503,23 +503,25 @@ int arp_find(unsigned char *haddr, struct sk_buff *skb)
 
 int arp_bind_neighbour(struct dst_entry *dst)
 {
+//取得网络设备结构指针
 	struct net_device *dev = dst->dev;
+//取得路由项中的邻居结构指针
 	struct neighbour *n = dst->neighbour;
-
+	//网络设备不能为空
 	if (dev == NULL)
 		return -EINVAL;
-	if (n == NULL) {
-		__be32 nexthop = ((struct rtable*)dst)->rt_gateway;
-		if (dev->flags&(IFF_LOOPBACK|IFF_POINTOPOINT))
+	if (n == NULL) {//如果路由项还没有指定邻居结构
+		__be32 nexthop = ((struct rtable*)dst)->rt_gateway;//取得路由网关
+		if (dev->flags&(IFF_LOOPBACK|IFF_POINTOPOINT))//如果设备支持回接和点对点
 			nexthop = 0;
 		n = __neigh_lookup_errno(
 #if defined(CONFIG_ATM_CLIP) || defined(CONFIG_ATM_CLIP_MODULE)
 		    dev->type == ARPHRD_ATM ? clip_tbl_hook :
 #endif
-		    &arp_tbl, &nexthop, dev);
+		    &arp_tbl, &nexthop, dev);//查找与创建邻居项
 		if (IS_ERR(n))
 			return PTR_ERR(n);
-		dst->neighbour = n;
+		dst->neighbour = n;  //记录邻居结构指针
 	}
 	return 0;
 }
@@ -1231,14 +1233,15 @@ static int arp_proc_init(void);
 
 void __init arp_init(void)
 {
-	neigh_table_init(&arp_tbl);
-
+	neigh_table_init(&arp_tbl);//插入全局邻居表队列
+	//向内核登记ARP数据包类型结构
 	dev_add_pack(&arp_packet_type);
 	arp_proc_init();
 #ifdef CONFIG_SYSCTL
 	neigh_sysctl_register(NULL, &arp_tbl.parms, NET_IPV4,
 			      NET_IPV4_NEIGH, "ipv4", NULL, NULL);
 #endif
+	//想内核注册ARP的通知节点
 	register_netdevice_notifier(&arp_netdev_notifier);
 }
 

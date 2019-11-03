@@ -89,25 +89,32 @@ struct neigh_statistics
 
 struct neighbour
 {
-	struct neighbour	*next;
-	struct neigh_table	*tbl;
-	struct neigh_parms	*parms;
-	struct net_device		*dev;
-	unsigned long		used;
-	unsigned long		confirmed;
-	unsigned long		updated;
-	__u8			flags;
-	__u8			nud_state;
-	__u8			type;
-	__u8			dead;
-	atomic_t		probes;
-	rwlock_t		lock;
+	struct neighbour	*next;//组成队列的指针
+	struct neigh_table	*tbl;  //邻居表结构
+	struct neigh_parms	*parms; //邻居参数结构
+	struct net_device		*dev; //网络设备指针
+	unsigned long		used; //使用时间
+	unsigned long		confirmed; //确认时间
+	unsigned long		updated; //更新时间
+	__u8			flags; //标志位
+	__u8			nud_state;  //状态标志
+	__u8			type;  //类型
+	__u8			dead; //删除标志
+	atomic_t		probes;  //失败计数器
+	rwlock_t		lock;  //读写锁
+	//mac地址
 	unsigned char		ha[ALIGN(MAX_ADDR_LEN, sizeof(unsigned long))];
+	//链路层头部缓存,加速发送
 	struct hh_cache		*hh;
+	//使用计数器
 	atomic_t		refcnt;
+	//发送函数指针
 	int			(*output)(struct sk_buff *skb);
+	//需要处理的数据包队列
 	struct sk_buff_head	arp_queue;
+	//定时队列
 	struct timer_list	timer;
+	//操作函数表
 	struct neigh_ops	*ops;
 	u8			primary_key[0];
 };
@@ -135,41 +142,69 @@ struct pneigh_entry
  *	neighbour table manipulation
  */
 
-
+//邻居表结构
 struct neigh_table
 {
+	//指向队列中的下一个邻居表
 	struct neigh_table	*next;
+	//地址族
 	int			family;
+	//邻居结构的总长度,邻居结构的最后要放一个IP地址作为哈希值
 	int			entry_size;
+	//IP地址长度
 	int			key_len;
 	__u32			(*hash)(const void *pkey, const struct net_device *);
+	//创建邻居结构的函数指针
 	int			(*constructor)(struct neighbour *);
+	//IPV6使用的创建函数指针
 	int			(*pconstructor)(struct pneigh_entry *);
+	//IPV6使用的释放函数指针
 	void			(*pdestructor)(struct pneigh_entry *);
+	//处理函数指针
 	void			(*proxy_redo)(struct sk_buff *skb);
+	//协议名称作为ID
 	char			*id;
+	//邻居项参数结构
 	struct neigh_parms	parms;
 	/* HACK. gc_* shoul follow parms without a gap! */
+	//回收间隔时间
 	int			gc_interval;
+	//回收最小阈值
 	int			gc_thresh1;
+	//回收中等阈值
 	int			gc_thresh2;
+	//回收最大阈值
 	int			gc_thresh3;
+	//最近回收时间
 	unsigned long		last_flush;
+	//回收定时器
 	struct timer_list 	gc_timer;
+	//代理定时器
 	struct timer_list 	proxy_timer;
+	//代理队列
 	struct sk_buff_head	proxy_queue;
+	//邻居结构数量
 	atomic_t		entries;
+	//读写锁
 	rwlock_t		lock;
+	//最近更新时间
 	unsigned long		last_rand;
+	//用于分配邻居结构的高速缓存
 	struct kmem_cache		*kmem_cachep;
+	//邻居结构的统计信息
 	struct neigh_statistics	*stats;
+	//邻居结构的哈希桶
 	struct neighbour	**hash_buckets;
+	//哈希桶的长度
 	unsigned int		hash_mask;
+	//哈希是
 	__u32			hash_rnd;
+	//下一个要搜索的哈希队列
 	unsigned int		hash_chain_gc;
+	//保存IP地址的队列
 	struct pneigh_entry	**phash_buckets;
 #ifdef CONFIG_PROC_FS
-	struct proc_dir_entry	*pde;
+	struct proc_dir_entry	*pde; //proc文件系统使用
 #endif
 };
 
@@ -337,9 +372,9 @@ __neigh_lookup_errno(struct neigh_table *tbl, const void *pkey,
 {
 	struct neighbour *n = neigh_lookup(tbl, pkey, dev);
 
-	if (n)
+	if (n)//找到了邻居结构就返回给上一级函数
 		return n;
-
+	//没有找到就创建
 	return neigh_create(tbl, pkey, dev);
 }
 

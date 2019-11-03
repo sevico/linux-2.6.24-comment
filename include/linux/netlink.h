@@ -232,8 +232,8 @@ static __inline__ struct nlmsghdr *
 __nlmsg_put(struct sk_buff *skb, u32 pid, u32 seq, int type, int len, int flags)
 {
 	struct nlmsghdr *nlh;
-	int size = NLMSG_LENGTH(len);
-
+	int size = NLMSG_LENGTH(len);//消息头长度+路由消息结构长度
+	//在数据包中开辟消息头和消息结构的空间,并取得开始处的消息头指针
 	nlh = (struct nlmsghdr*)skb_put(skb, NLMSG_ALIGN(size));
 	nlh->nlmsg_type = type;
 	nlh->nlmsg_len = size;

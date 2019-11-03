@@ -68,19 +68,23 @@
 struct netlink_sock {
 	/* struct sock has to be the first member of netlink_sock */
 	struct sock		sk;
-	u32			pid;
-	u32			dst_pid;
-	u32			dst_group;
-	u32			flags;
+	u32			pid;//当前进程的ID
+	u32			dst_pid;//目标进程ID
+	u32			dst_group;//目标进程组号
+	u32			flags;//标志位
 	u32			subscriptions;
-	u32			ngroups;
-	unsigned long		*groups;
-	unsigned long		state;
-	wait_queue_head_t	wait;
+	u32			ngroups;//进程组数量
+	unsigned long		*groups;//组位图
+	unsigned long		state;//状态位
+	wait_queue_head_t	wait;//等待队列
+	//netlink_callback结构用于显示路由表的内容,例如使用ip route get命令
 	struct netlink_callback	*cb;
+	//互斥锁
 	struct mutex		*cb_mutex;
-	struct mutex		cb_def_mutex;
+	struct mutex		cb_def_mutex;//默认的互斥锁
+	//接收数据包的函数指针
 	void			(*netlink_rcv)(struct sk_buff *skb);
+	//所属模块
 	struct module		*module;
 };
 
@@ -920,10 +924,10 @@ static __inline__ int netlink_broadcast_deliver(struct sock *sk, struct sk_buff 
 }
 
 struct netlink_broadcast_data {
-	struct sock *exclude_sk;
-	struct net *net;
-	u32 pid;
-	u32 group;
+	struct sock *exclude_sk;//排除在外的sock
+	struct net *net; //所在的网络空间
+	u32 pid; //进程id
+	u32 group; //所属组
 	int failure;
 	int congested;
 	int delivered;
@@ -937,7 +941,7 @@ static inline int do_one_broadcast(struct sock *sk,
 	struct netlink_sock *nlk = nlk_sk(sk);
 	int val;
 
-	if (p->exclude_sk == sk)
+	if (p->exclude_sk == sk)//如果当前找到的sock是排除在外的就退出
 		goto out;
 
 	if (nlk->pid == p->pid || p->group - 1 >= nlk->ngroups ||
@@ -951,13 +955,13 @@ static inline int do_one_broadcast(struct sock *sk,
 		netlink_overrun(sk);
 		goto out;
 	}
-
+	//增加sock的使用计数防止它被其他进程释放
 	sock_hold(sk);
-	if (p->skb2 == NULL) {
-		if (skb_shared(p->skb)) {
-			p->skb2 = skb_clone(p->skb, p->allocation);
+	if (p->skb2 == NULL) {//备用数据包指针空闲
+		if (skb_shared(p->skb)) {//要发送数据包是共享使用的
+			p->skb2 = skb_clone(p->skb, p->allocation); //克隆一个数据包
 		} else {
-			p->skb2 = skb_get(p->skb);
+			p->skb2 = skb_get(p->skb);//备份数据包指针指向发送数据包
 			/*
 			 * skb ownership may have been set when
 			 * delivered to a previous socket.
@@ -965,10 +969,11 @@ static inline int do_one_broadcast(struct sock *sk,
 			skb_orphan(p->skb2);
 		}
 	}
-	if (p->skb2 == NULL) {
-		netlink_overrun(sk);
+	if (p->skb2 == NULL) {//备份数据包指针仍然为空
+		netlink_overrun(sk);//调用sock的错误通知函数
 		/* Clone failed. Notify ALL listeners. */
-		p->failure = 1;
+		p->failure = 1;//标记发送失败
+		//数据包挂入sock的接收队列
 	} else if ((val = netlink_broadcast_deliver(sk, p->skb2)) < 0) {
 		netlink_overrun(sk);
 	} else {
@@ -976,7 +981,7 @@ static inline int do_one_broadcast(struct sock *sk,
 		p->delivered = 1;
 		p->skb2 = NULL;
 	}
-	sock_put(sk);
+	sock_put(sk);//与sock_hold对应,减少sk的引用计数
 
 out:
 	return 0;
@@ -986,12 +991,12 @@ int netlink_broadcast(struct sock *ssk, struct sk_buff *skb, u32 pid,
 		      u32 group, gfp_t allocation)
 {
 	struct net *net = ssk->sk_net;
-	struct netlink_broadcast_data info;
+	struct netlink_broadcast_data info;//用于广播的netlink数据结构
 	struct hlist_node *node;
 	struct sock *sk;
 
 	skb = netlink_trim(skb, allocation);
-
+	//初始化netlink广播的数据结构
 	info.exclude_sk = ssk;
 	info.net = net;
 	info.pid = pid;
@@ -1010,14 +1015,14 @@ int netlink_broadcast(struct sock *ssk, struct sk_buff *skb, u32 pid,
 	sk_for_each_bound(sk, node, &nl_table[ssk->sk_protocol].mc_list)
 		do_one_broadcast(sk, &info);
 
-	kfree_skb(skb);
+	kfree_skb(skb);//释放数据包空间
 
-	netlink_unlock_table();
+	netlink_unlock_table();  //对数组加锁
 
-	if (info.skb2)
+	if (info.skb2)//释放备份的数据包空间
 		kfree_skb(info.skb2);
 
-	if (info.delivered) {
+	if (info.delivered) {//传送完成则"让步"启动进程调度,让等待进程处理数据包
 		if (info.congested && (allocation & __GFP_WAIT))
 			yield();
 		return 0;

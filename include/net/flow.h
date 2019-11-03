@@ -9,18 +9,18 @@
 
 #include <linux/in6.h>
 #include <asm/atomic.h>
-
+//路由间值结构
 struct flowi {
-	int	oif;
-	int	iif;
-	__u32	mark;
+	int	oif;//负责发送的网络设备
+	int	iif;  //负责接收的网络设备
+	__u32	mark;  //子网掩码
 
 	union {
 		struct {
-			__be32			daddr;
-			__be32			saddr;
-			__u8			tos;
-			__u8			scope;
+			__be32			daddr;//目标地址
+			__be32			saddr;//源地址,即发送方的地址
+			__u8			tos;  //服务类型TOS
+			__u8			scope;  //范围
 		} ip4_u;
 		
 		struct {
@@ -34,7 +34,7 @@ struct flowi {
 			__le16			saddr;
 			__u8			scope;
 		} dn_u;
-	} nl_u;
+	} nl_u;//该联合内容主要用于网络层
 #define fld_dst		nl_u.dn_u.daddr
 #define fld_src		nl_u.dn_u.saddr
 #define fld_scope	nl_u.dn_u.scope
@@ -46,19 +46,19 @@ struct flowi {
 #define fl4_tos		nl_u.ip4_u.tos
 #define fl4_scope	nl_u.ip4_u.scope
 
-	__u8	proto;
-	__u8	flags;
+	__u8	proto;  //传输层协议
+	__u8	flags;  //标志位
 #define FLOWI_FLAG_MULTIPATHOLDROUTE 0x01
 	union {
 		struct {
-			__be16	sport;
-			__be16	dport;
+			__be16	sport;  //源端口,即发送方的端口
+			__be16	dport;  //目标端口,即接收方的端口
 		} ports;
 
 		struct {
 			__u8	type;
 			__u8	code;
-		} icmpt;
+		} icmpt;  //ICMP类型
 
 		struct {
 			__le16	sport;
@@ -70,7 +70,7 @@ struct flowi {
 		struct {
 			__u8	type;
 		} mht;
-	} uli_u;
+	} uli_u;//该联合的内容主要用于传输层
 #define fl_ip_sport	uli_u.ports.sport
 #define fl_ip_dport	uli_u.ports.dport
 #define fl_icmp_type	uli_u.icmpt.type

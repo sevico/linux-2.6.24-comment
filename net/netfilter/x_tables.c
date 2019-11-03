@@ -489,7 +489,12 @@ int xt_compat_target_to_user(struct xt_entry_target *t, void __user **dstptr,
 }
 EXPORT_SYMBOL_GPL(xt_compat_target_to_user);
 #endif
-
+/*
+功能:申请一个新的xt_table_info结构大小的内存，且根据size的大小，*
+为xt_table_info->entries[cpu]数组的每一个成员申请size大小的内存
+(即为每一个cpu都申请一个size大小的内存)
+size:一个xt_table_info在每一个cpu中所对应的的规则数的总内存。
+*/
 struct xt_table_info *xt_alloc_table_info(unsigned int size)
 {
 	struct xt_table_info *newinfo;

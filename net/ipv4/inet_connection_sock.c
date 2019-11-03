@@ -60,7 +60,7 @@ int inet_csk_bind_conflict(const struct sock *sk,
 		    !inet_v6_ipv6only(sk2) &&
 		    (!sk->sk_bound_dev_if ||
 		     !sk2->sk_bound_dev_if ||
-		     sk->sk_bound_dev_if == sk2->sk_bound_dev_if)) {
+		     sk->sk_bound_dev_if == sk2->sk_bound_dev_if)) {//是否同一设备
 			if (!reuse || !sk2->sk_reuse ||
 			    sk2->sk_state == TCP_LISTEN) {
 				const __be32 sk2_rcv_saddr = inet_rcv_saddr(sk2);
@@ -247,7 +247,7 @@ struct sock *inet_csk_accept(struct sock *sk, int flags, int *err)
 		error = -EAGAIN;
 		if (!timeo)
 			goto out_err;
-
+		//进入循环睡眠等待连接到来
 		error = inet_csk_wait_for_connect(sk, timeo);
 		if (error)
 			goto out_err;
@@ -564,15 +564,16 @@ EXPORT_SYMBOL(inet_csk_destroy_sock);
 
 int inet_csk_listen_start(struct sock *sk, const int nr_table_entries)
 {
-	struct inet_sock *inet = inet_sk(sk);
-	struct inet_connection_sock *icsk = inet_csk(sk);
+	struct inet_sock *inet = inet_sk(sk);//取得inet的sock指针
+	struct inet_connection_sock *icsk = inet_csk(sk);//取得inet连接结构指针
+	//初始化连接请求队列,并创建监听结构与连接请求结构
 	int rc = reqsk_queue_alloc(&icsk->icsk_accept_queue, nr_table_entries);
 
 	if (rc != 0)
 		return rc;
 
-	sk->sk_max_ack_backlog = 0;
-	sk->sk_ack_backlog = 0;
+	sk->sk_max_ack_backlog = 0;//最大连接数
+	sk->sk_ack_backlog = 0;//当前连接数
 	inet_csk_delack_init(sk);
 
 	/* There is race window here: we announce ourselves listening,
@@ -580,16 +581,16 @@ int inet_csk_listen_start(struct sock *sk, const int nr_table_entries)
 	 * It is OK, because this socket enters to hash table only
 	 * after validation is complete.
 	 */
-	sk->sk_state = TCP_LISTEN;
-	if (!sk->sk_prot->get_port(sk, inet->num)) {
+	sk->sk_state = TCP_LISTEN;//设置监听状态
+	if (!sk->sk_prot->get_port(sk, inet->num)) {//是否已经绑定了端口
 		inet->sport = htons(inet->num);
 
 		sk_dst_reset(sk);
-		sk->sk_prot->hash(sk);
+		sk->sk_prot->hash(sk);//将sock结构链入监听队列
 
 		return 0;
 	}
-
+	//到达这里表示中间出错了,关闭sock,清空连接请求队列,返回出错码
 	sk->sk_state = TCP_CLOSE;
 	__reqsk_queue_destroy(&icsk->icsk_accept_queue);
 	return -EADDRINUSE;

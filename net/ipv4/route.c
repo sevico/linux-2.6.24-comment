@@ -837,7 +837,10 @@ restart:
 	rthp = &rt_hash_table[hash].chain;
 
 	spin_lock_bh(rt_hash_lock_addr(hash));
+	/* 开始遍历哈希链表 */
 	while ((rth = *rthp) != NULL) {
+		/* 如果未过期，并在列表中找到了匹配的路由，则将该路由缓存项拿到 链表的最
+		新端，并增加引用计数，释放新建待插入的缓存项内存。 */
 		if (compare_keys(&rth->fl, &rt->fl)) {
 			/* Put it first */
 			*rthp = rth->u.dst.rt_next;
@@ -893,6 +896,7 @@ restart:
 	/* Try to bind route to arp only if it is output
 	   route or unicast forwarding path.
 	 */
+	 /* 当路由为单播路由或者为外出路由(iif为0的情况即为外出路由) 则需要把路由绑定到arp */
 	if (rt->rt_type == RTN_UNICAST || rt->fl.iif == 0) {
 		int err = arp_bind_neighbour(&rt->u.dst);
 		if (err) {
@@ -1455,25 +1459,25 @@ static void set_class_tag(struct rtable *rt, u32 tag)
 
 static void rt_set_nexthop(struct rtable *rt, struct fib_result *res, u32 itag)
 {
-	struct fib_info *fi = res->fi;
+	struct fib_info *fi = res->fi;  //取得查找结果中的路由信息结构
 
-	if (fi) {
+	if (fi) {//如果路由信息存在,如果指定了网络并且跳转范围在子网范围
 		if (FIB_RES_GW(*res) &&
 		    FIB_RES_NH(*res).nh_scope == RT_SCOPE_LINK)
-			rt->rt_gateway = FIB_RES_GW(*res);
+			rt->rt_gateway = FIB_RES_GW(*res);  //记录查找结构中的网关地址
 		memcpy(rt->u.dst.metrics, fi->fib_metrics,
-		       sizeof(rt->u.dst.metrics));
-		if (fi->fib_mtu == 0) {
-			rt->u.dst.metrics[RTAX_MTU-1] = rt->u.dst.dev->mtu;
+		       sizeof(rt->u.dst.metrics));//复制路由信息的负载值到路由项中
+		if (fi->fib_mtu == 0) {  //如果路由信息的MTU为0
+			rt->u.dst.metrics[RTAX_MTU-1] = rt->u.dst.dev->mtu;//复制设备的MTU
 			if (rt->u.dst.metrics[RTAX_LOCK-1] & (1 << RTAX_MTU) &&
 			    rt->rt_gateway != rt->rt_dst &&
 			    rt->u.dst.dev->mtu > 576)
-				rt->u.dst.metrics[RTAX_MTU-1] = 576;
+				rt->u.dst.metrics[RTAX_MTU-1] = 576; //修改MTU的负载值
 		}
 #ifdef CONFIG_NET_CLS_ROUTE
 		rt->u.dst.tclassid = FIB_RES_NH(*res).nh_tclassid;
 #endif
-	} else
+	} else//没有路由信息结构就使用设备的MTU
 		rt->u.dst.metrics[RTAX_MTU-1]= rt->u.dst.dev->mtu;
 
 	if (rt->u.dst.metrics[RTAX_HOPLIMIT-1] == 0)
@@ -1492,7 +1496,7 @@ static void rt_set_nexthop(struct rtable *rt, struct fib_result *res, u32 itag)
 #endif
 	set_class_tag(rt, itag);
 #endif
-	rt->rt_type = res->type;
+	rt->rt_type = res->type;//记录查询结果中的路由类型
 }
 
 static int ip_route_input_mc(struct sk_buff *skb, __be32 daddr, __be32 saddr,
@@ -1809,20 +1813,20 @@ static int ip_route_input_slow(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 		goto local_input;
 	}
 
-	if (!IN_DEV_FORWARD(in_dev))
+	if (!IN_DEV_FORWARD(in_dev))//如果设备不支持转发
 		goto e_hostunreach;
-	if (res.type != RTN_UNICAST)
+	if (res.type != RTN_UNICAST)//如果目标地址不是单播类型
 		goto martian_destination;
-
+	//创建用于转发的路由表
 	err = ip_mkroute_input(skb, &res, &fl, in_dev, daddr, saddr, tos);
-done:
-	in_dev_put(in_dev);
-	if (free_res)
-		fib_res_put(&res);
+done://返回点
+	in_dev_put(in_dev);//递减使用计数
+	if (free_res) //如果需要释放查找结果
+		fib_res_put(&res);//释放查找结果
 out:	return err;
 
-brd_input:
-	if (skb->protocol != htons(ETH_P_IP))
+brd_input://广播输入
+	if (skb->protocol != htons(ETH_P_IP))//如果不是Ip标准协议
 		goto e_inval;
 
 	if (ZERONET(saddr))
@@ -1920,12 +1924,14 @@ int ip_route_input(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 {
 	struct rtable * rth;
 	unsigned	hash;
-	int iif = dev->ifindex;
+	int iif = dev->ifindex;//获取设备的ID
 
-	tos &= IPTOS_RT_MASK;
-	hash = rt_hash(daddr, saddr, iif);
+	tos &= IPTOS_RT_MASK;//调整后的TOS
+	hash = rt_hash(daddr, saddr, iif);  //计算HASH值
 
 	rcu_read_lock();
+	//循环在路由表队列中查找路由表,条件是地址相同,服务类型相同,掩码相同
+	//网络空间相同,随机数相同
 	for (rth = rcu_dereference(rt_hash_table[hash].chain); rth;
 	     rth = rcu_dereference(rth->u.dst.rt_next)) {
 		if (rth->fl.fl4_dst == daddr &&
@@ -1935,9 +1941,9 @@ int ip_route_input(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 		    rth->fl.mark == skb->mark &&
 		    rth->fl.fl4_tos == tos) {
 			dst_use(&rth->u.dst, jiffies);
-			RT_CACHE_STAT_INC(in_hit);
+			RT_CACHE_STAT_INC(in_hit); //递增命中计数
 			rcu_read_unlock();
-			skb->dst = (struct dst_entry*)rth;
+			skb->dst = (struct dst_entry*)rth;//记录找到的路由表
 			return 0;
 		}
 		RT_CACHE_STAT_INC(in_hlist_search);
@@ -1955,13 +1961,13 @@ int ip_route_input(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 	   Note, that multicast routers are not affected, because
 	   route cache entry is created eventually.
 	 */
-	if (MULTICAST(daddr)) {
+	if (MULTICAST(daddr)) {//如果目标地址是组播类型
 		struct in_device *in_dev;
 
 		rcu_read_lock();
-		if ((in_dev = __in_dev_get_rcu(dev)) != NULL) {
+		if ((in_dev = __in_dev_get_rcu(dev)) != NULL) {//获取配置结构
 			int our = ip_check_mc(in_dev, daddr, saddr,
-				ip_hdr(skb)->protocol);
+				ip_hdr(skb)->protocol);//检查目标地址是否为本地配置组播地址
 			if (our
 #ifdef CONFIG_IP_MROUTE
 			    || (!LOCAL_MCAST(daddr) && IN_DEV_MFORWARD(in_dev))
@@ -1989,33 +1995,36 @@ static inline int __mkroute_output(struct rtable **result,
 	struct in_device *in_dev;
 	u32 tos = RT_FL_TOS(oldflp);
 	int err = 0;
-
+	//源地址时回接地址,但是发送设备不支持回接就返回
 	if (LOOPBACK(fl->fl4_src) && !(dev_out->flags&IFF_LOOPBACK))
 		return -EINVAL;
-
+	//目标地址是否为极限地址
 	if (fl->fl4_dst == htonl(0xFFFFFFFF))
-		res->type = RTN_BROADCAST;
-	else if (MULTICAST(fl->fl4_dst))
-		res->type = RTN_MULTICAST;
+		res->type = RTN_BROADCAST;  //设置查询结果返回的类型为广播地址
+	else if (MULTICAST(fl->fl4_dst))//目标地址是否为组播地址
+		res->type = RTN_MULTICAST;//设置查询结果返回的类型为组播地址
+	//目标地址是否为广播地址或零地址
 	else if (BADCLASS(fl->fl4_dst) || ZERONET(fl->fl4_dst))
 		return -EINVAL;
-
+	//发送设备支持回接
 	if (dev_out->flags & IFF_LOOPBACK)
-		flags |= RTCF_LOCAL;
+		flags |= RTCF_LOCAL; //增加本地路由标志
 
 	/* get work reference to inet device */
-	in_dev = in_dev_get(dev_out);
+	in_dev = in_dev_get(dev_out);  //取得配置结构
 	if (!in_dev)
 		return -EINVAL;
-
+	//如果是广播类型
 	if (res->type == RTN_BROADCAST) {
+		//增加广播和本地路由标志
 		flags |= RTCF_BROADCAST | RTCF_LOCAL;
+		//放弃使用路由信息结构
 		if (res->fi) {
 			fib_info_put(res->fi);
 			res->fi = NULL;
 		}
-	} else if (res->type == RTN_MULTICAST) {
-		flags |= RTCF_MULTICAST|RTCF_LOCAL;
+	} else if (res->type == RTN_MULTICAST) {//如果是组播地址
+		flags |= RTCF_MULTICAST|RTCF_LOCAL;//增加组播和本地路由标志
 		if (!ip_check_mc(in_dev, oldflp->fl4_dst, oldflp->fl4_src,
 				 oldflp->proto))
 			flags &= ~RTCF_LOCAL;
@@ -2030,30 +2039,30 @@ static inline int __mkroute_output(struct rtable **result,
 	}
 
 
-	rth = dst_alloc(&ipv4_dst_ops);
+	rth = dst_alloc(&ipv4_dst_ops);//分配路由表结构
 	if (!rth) {
 		err = -ENOBUFS;
 		goto cleanup;
 	}
 
-	atomic_set(&rth->u.dst.__refcnt, 1);
-	rth->u.dst.flags= DST_HOST;
-	if (IN_DEV_CONF_GET(in_dev, NOXFRM))
-		rth->u.dst.flags |= DST_NOXFRM;
-	if (IN_DEV_CONF_GET(in_dev, NOPOLICY))
-		rth->u.dst.flags |= DST_NOPOLICY;
+	atomic_set(&rth->u.dst.__refcnt, 1);//设置路由表的使用计数
+	rth->u.dst.flags= DST_HOST;//路由项中增加目标主机标志
+	if (IN_DEV_CONF_GET(in_dev, NOXFRM))//如果配置结构中指定无XFRM框架
+		rth->u.dst.flags |= DST_NOXFRM;//路由项中增加无XFRM框架标志
+	if (IN_DEV_CONF_GET(in_dev, NOPOLICY))//如果配置结构指定无策略
+		rth->u.dst.flags |= DST_NOPOLICY;  //路由项中增加无策略标志
 
-	rth->fl.fl4_dst	= oldflp->fl4_dst;
-	rth->fl.fl4_tos	= tos;
-	rth->fl.fl4_src	= oldflp->fl4_src;
-	rth->fl.oif	= oldflp->oif;
-	rth->fl.mark    = oldflp->mark;
-	rth->rt_dst	= fl->fl4_dst;
-	rth->rt_src	= fl->fl4_src;
+	rth->fl.fl4_dst	= oldflp->fl4_dst;//记录原来指定的目标地址
+	rth->fl.fl4_tos	= tos;//记录TOS
+	rth->fl.fl4_src	= oldflp->fl4_src;//记录原来的源地址
+	rth->fl.oif	= oldflp->oif;//记录原来的发送设备
+	rth->fl.mark    = oldflp->mark;  //记录原来的掩码
+	rth->rt_dst	= fl->fl4_dst;  //记录目标地址,来自于上一级函数对路由查询结果
+	rth->rt_src	= fl->fl4_src;  //记录源地址,来自于上一级函数对路由查询结果
 	rth->rt_iif	= oldflp->oif ? : dev_out->ifindex;
 	/* get references to the devices that are to be hold by the routing
 	   cache entry */
-	rth->u.dst.dev	= dev_out;
+	rth->u.dst.dev	= dev_out;  //确定发送设备
 	dev_hold(dev_out);
 	rth->idev	= in_dev_get(dev_out);
 	rth->rt_gateway = fl->fl4_dst;
@@ -2085,7 +2094,7 @@ static inline int __mkroute_output(struct rtable **result,
 #endif
 	}
 
-	rt_set_nexthop(rth, res, 0);
+	rt_set_nexthop(rth, res, 0);  //根据查询结果设置路由表
 
 	rth->rt_flags = flags;
 
@@ -2121,19 +2130,19 @@ static inline int ip_mkroute_output(struct rtable **rp,
 
 static int ip_route_output_slow(struct rtable **rp, const struct flowi *oldflp)
 {
-	u32 tos	= RT_FL_TOS(oldflp);
+	u32 tos	= RT_FL_TOS(oldflp);//取得前面路由键值中的TOS值
 	struct flowi fl = { .nl_u = { .ip4_u =
-				      { .daddr = oldflp->fl4_dst,
-					.saddr = oldflp->fl4_src,
-					.tos = tos & IPTOS_RT_MASK,
-					.scope = ((tos & RTO_ONLINK) ?
+				      { .daddr = oldflp->fl4_dst,//目标地址
+					.saddr = oldflp->fl4_src,//源地址
+					.tos = tos & IPTOS_RT_MASK,//TOS
+					.scope = ((tos & RTO_ONLINK) ? /范围
 						  RT_SCOPE_LINK :
 						  RT_SCOPE_UNIVERSE),
 				      } },
-			    .mark = oldflp->mark,
-			    .iif = init_net.loopback_dev->ifindex,
-			    .oif = oldflp->oif };
-	struct fib_result res;
+			    .mark = oldflp->mark,  //掩码
+			    .iif = init_net.loopback_dev->ifindex,  //接收网络设备
+			    .oif = oldflp->oif };  //发送网络设备
+	struct fib_result res;  //声明查找结果变量
 	unsigned flags = 0;
 	struct net_device *dev_out = NULL;
 	int free_res = 0;
@@ -2145,15 +2154,18 @@ static int ip_route_output_slow(struct rtable **rp, const struct flowi *oldflp)
 	res.r		= NULL;
 #endif
 
-	if (oldflp->fl4_src) {
+	if (oldflp->fl4_src) {  //如果指定了源地址
 		err = -EINVAL;
-		if (MULTICAST(oldflp->fl4_src) ||
-		    BADCLASS(oldflp->fl4_src) ||
-		    ZERONET(oldflp->fl4_src))
-			goto out;
+		/* 若源地址为组播地址，受限广播地址(255.255.255.255)或0地址， 均不合法，即刻返回 */
+		if (MULTICAST(oldflp->fl4_src) ||  //检查地址是否是组播地址
+		    BADCLASS(oldflp->fl4_src) ||  //检查地址是否是广播地址
+		    ZERONET(oldflp->fl4_src))  //检查地址是否是零网地址
+			goto out;  //源地址不允许是上述3种类型,因此返回
 
 		/* It is equivalent to inet_addr_type(saddr) == RTN_LOCAL */
-		dev_out = ip_dev_find(oldflp->fl4_src);
+		/* 等价于inet_addr_type(saddr) == RTN_LOCAL, 
+		__ip_dev_find()函数实际是搜索RT_TABLE_LOCAL 路由表中的路由表项，如果未找到对应设备则返回，因为 Linux不允许环回接口发组播或受限广播 */
+		dev_out = ip_dev_find(oldflp->fl4_src);  //查找发送网络设备
 		if (dev_out == NULL)
 			goto out;
 
@@ -2181,7 +2193,7 @@ static int ip_route_output_slow(struct rtable **rp, const struct flowi *oldflp)
 			   will not leave this host and route is valid).
 			   Luckily, this hack is good workaround.
 			 */
-
+			/* 给外面接口赋值后转去创建路由缓存 */
 			fl.oif = dev_out->ifindex;
 			goto make_route;
 		}
@@ -2192,6 +2204,7 @@ static int ip_route_output_slow(struct rtable **rp, const struct flowi *oldflp)
 
 
 	if (oldflp->oif) {
+		/* 如果外出接口示启用或外出接口对应的IPv4数据不存在，则返回网络不可达 */
 		dev_out = dev_get_by_index(&init_net, oldflp->oif);
 		err = -ENODEV;
 		if (dev_out == NULL)
@@ -2202,13 +2215,14 @@ static int ip_route_output_slow(struct rtable **rp, const struct flowi *oldflp)
 			dev_put(dev_out);
 			goto out;	/* Wrong error code */
 		}
-
+		/* 若是本地组播地址或受限广播地址则直接转去创建路由缓存 */
 		if (LOCAL_MCAST(oldflp->fl4_dst) || oldflp->fl4_dst == htonl(0xFFFFFFFF)) {
 			if (!fl.fl4_src)
 				fl.fl4_src = inet_select_addr(dev_out, 0,
 							      RT_SCOPE_LINK);
 			goto make_route;
 		}
+		/* 若未指定源地址，则根据目地地址类型创建选择一个源地址 */
 		if (!fl.fl4_src) {
 			if (MULTICAST(oldflp->fl4_dst))
 				fl.fl4_src = inet_select_addr(dev_out, 0,
@@ -2218,7 +2232,7 @@ static int ip_route_output_slow(struct rtable **rp, const struct flowi *oldflp)
 							      RT_SCOPE_HOST);
 		}
 	}
-
+	/* 如果目的地址不存在，则令目的地址等于源地址，若都不存在，则使用环回接口， 路由类型为本地路由，转而创建路由缓存 */
 	if (!fl.fl4_dst) {
 		fl.fl4_dst = fl.fl4_src;
 		if (!fl.fl4_dst)
@@ -2232,7 +2246,10 @@ static int ip_route_output_slow(struct rtable **rp, const struct flowi *oldflp)
 		flags |= RTCF_LOCAL;
 		goto make_route;
 	}
-
+	/* OK, 走到这里先总结一下不需要查询路由表即可直接创建路由缓存的情况：
+	1. 指定了源地址，未指定外出接口，目的地址为组播地址或受限广播地址 
+	2. 指定了外出接口，并且目的地址为本地组播地址或受限广播地址 
+	3. 未指定目的地址。   若以上三种情况均未满足，则需要进行路由表查询。 */
 	if (fib_lookup(&fl, &res)) {
 		res.fi = NULL;
 		if (oldflp->oif) {
@@ -2266,7 +2283,7 @@ static int ip_route_output_slow(struct rtable **rp, const struct flowi *oldflp)
 		goto out;
 	}
 	free_res = 1;
-
+	/* 若为本地路由，则使用环回接口 */
 	if (res.type == RTN_LOCAL) {
 		if (!fl.fl4_src)
 			fl.fl4_src = fl.fl4_dst;
@@ -2287,6 +2304,10 @@ static int ip_route_output_slow(struct rtable **rp, const struct flowi *oldflp)
 		fib_select_multipath(&fl, &res);
 	else
 #endif
+	/* 使用默认路由需要三个条件： 1. 若前缀为0，也即掩码长度为0，默认路由匹配所有的目的地址。
+	2. 路由类型为RTN_UNICAST，我们知道本地地址，组播地址和广播地址 
+	3. 未指定出口设备，上面我们提到即便是没有路由的情况下提供了出口设备， 数据包也是可以发送的。 这时候路由是默认路由，因此我们需要选择默认网关 */
+
 	if (!res.prefixlen && res.type == RTN_UNICAST && !fl.oif)
 		fib_select_default(&fl, &res);
 
@@ -2301,6 +2322,7 @@ static int ip_route_output_slow(struct rtable **rp, const struct flowi *oldflp)
 
 
 make_route:
+	/* 创建一条路由缓存 */
 	err = ip_mkroute_output(rp, &res, &fl, oldflp, dev_out, flags);
 
 

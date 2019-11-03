@@ -78,6 +78,7 @@ struct fib_nh {
 struct fib_info {
 //通过fib_hash和fib_lhash链入到两个哈希表中
 	//通过fib_hash将fib_info实例插入到fib_info_hash散列表中
+	 //用于链接fib_info，这样可以通过fib_find_info来实现快速查找fib_info
 	struct hlist_node	fib_hash;
 //将fib_info实例插入到fib_info_laddrhash散列表中.在路由表项有一个首选源地址时,才将fib_info结构插入到fib_info_laddrhash
 	struct hlist_node	fib_lhash;
@@ -88,7 +89,10 @@ struct fib_info {
 	int			fib_dead;  //标志着路由是否被删除了
 	//当前使用的唯一标志是RTNH_F_DEAD,表示吓一跳无效.在支持多路径条件下使用
 	unsigned		fib_flags;  //标志位
+	//指示本路由是哪个模块来创建的,其值就是rtmsg->rtm_protocol
 	int			fib_protocol;  //安装路由协议
+	//fib_prefsrc是一个偏向使用的源地址,参照RFC1122文档中关于UDP multihoming部分
+	//它作为一个"指定目的地址",被UDP用作回应报文的源地址
 	__be32			fib_prefsrc;  //指定的源IP地址，源地址是与目标地址组成一个路由
 	u32			fib_priority;  //路由的优先级
 	u32			fib_metrics[RTAX_MAX];  //用来保存负载值

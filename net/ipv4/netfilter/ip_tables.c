@@ -2129,7 +2129,7 @@ int ipt_register_table(struct xt_table *table, const struct ipt_replace *repl)
 	static struct xt_table_info bootstrap
 		= { 0, 0, 0, { 0 }, { 0 }, { } };
 	void *loc_cpu_entry;
-
+	/*分别申请sizeof（xt_table_info）与repl->size两个内存块。*/
 	newinfo = xt_alloc_table_info(repl->size);
 	if (!newinfo)
 		return -ENOMEM;
@@ -2137,9 +2137,11 @@ int ipt_register_table(struct xt_table *table, const struct ipt_replace *repl)
 	/* choose the copy on our node/cpu
 	 * but dont care of preemption
 	 */
+	  /*获取当前cpu所对应的entries指针，
+并将repl->entries中的值拷贝到loc_cpu_entry所指向的内存空间中*/
 	loc_cpu_entry = newinfo->entries[raw_smp_processor_id()];
 	memcpy(loc_cpu_entry, repl->entries, repl->size);
-
+	/*表注册时，根据repl的值，为xt_table_info *newinfo变量进行赋值操作*/
 	ret = translate_table(table->name, table->valid_hooks,
 			      newinfo, loc_cpu_entry, repl->size,
 			      repl->num_entries,
@@ -2149,7 +2151,7 @@ int ipt_register_table(struct xt_table *table, const struct ipt_replace *repl)
 		xt_free_table_info(newinfo);
 		return ret;
 	}
-
+	/*注册表，并将指针table->private指向newinfo*/
 	ret = xt_register_table(table, &bootstrap, newinfo);
 	if (ret != 0) {
 		xt_free_table_info(newinfo);

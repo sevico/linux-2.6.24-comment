@@ -8,49 +8,71 @@ struct xt_entry_match
 {
 	union {
 		struct {
+			/*该match所占用的内存大小(以字节为单位)*/
 			u_int16_t match_size;
 
 			/* Used by userspace */
+			/*该match的名称*/
 			char name[XT_FUNCTION_MAXNAMELEN-1];
-
+/*该match的版本,
+通过match的名称与版本信息可以唯一确定一个match。
+*/
 			u_int8_t revision;
 		} user;
 		struct {
+			/*该match所占用的内存大小(以字节为单位)*/
 			u_int16_t match_size;
 
 			/* Used inside the kernel */
+			/*指向ipt_match结构，对于*/
 			struct xt_match *match;
 		} kernel;
 
 		/* Total length */
 		u_int16_t match_size;
 	} u;
-
+	/*可变长度数组，与下一个match或者target关联*/
 	unsigned char data[0];
 };
+/*
 
+target结构体，包括用户态与内核态联合体，通过这个联合体我们发现
+只有target_size是共用的。当用户态需要添加新的规则时，对于新规则的
+target，用户态只在ipt_entry_target.u.user.name中设置target的名称，而内核在添加规则时
+就会根据ipt_entry_target.u.user.name在链表xt[af].target中查找符合要求的ipt_standard_target，当查找
+到时就会对ipt_entry_target.u.kernel.target 进行赋值
+*/
 struct xt_entry_target
 {
 	union {
 		struct {
-			u_int16_t target_size;
+			u_int16_t target_size;//target 所占用的内存大小
 
 			/* Used by userspace */
+			//target 的名字
 			char name[XT_FUNCTION_MAXNAMELEN-1];
-
+			/*target的版本号，这个值也有很大的作用，这个值让target的向 上兼容成为了可能。
+存在以下情况:
+对于target名称为"ABC "，revision为0的target，我们想对这个 target的扩展target函数做新的架构修改，但是又不想改target的 名称，也不想直接改原target的扩展target函数，这时我们可以重 新添加一个target名称为"ABC"，revision为1，且扩展target函数
+为我们新编写的target。这样既保证了针对原来target "ABC"的 iptables规则能正确执行，又能满足我们新的需求。
+通过name与revision可以唯一确定一个target
+*/
 			u_int8_t revision;
 		} user;
 		struct {
+			/*target 所占用的内存大小*/
 			u_int16_t target_size;
 
 			/* Used inside the kernel */
+			/* 扩展target使用，用于指向xt_target */
 			struct xt_target *target;
 		} kernel;
 
 		/* Total length */
+		/*target 所占用的内存大小*/
 		u_int16_t target_size;
 	} u;
-
+	/*可变长数组，与下一个ipt_entry关联*/
 	unsigned char data[0];
 };
 
@@ -132,8 +154,9 @@ struct xt_counters_info
 
 struct xt_match
 {
+	//链表，使该match添加到match链表中
 	struct list_head list;
-
+	//match名称
 	const char name[XT_FUNCTION_MAXNAMELEN-1];
 
 	/* Return true or false: return FALSE and set *hotdrop = 1 to
@@ -141,6 +164,9 @@ struct xt_match
 	/* Arguments changed since 2.6.9, as this must now handle
 	   non-linear skb, using skb_header_pointer and
 	   skb_ip_make_writable. */
+	    /*
+ match处理函数
+*/
 	bool (*match)(const struct sk_buff *skb,
 		      const struct net_device *in,
 		      const struct net_device *out,
@@ -152,6 +178,8 @@ struct xt_match
 
 	/* Called when user tries to insert an entry of this type. */
 	/* Should return true or false. */
+	/*合法性检查函数，在创建一个ipt_entry时，在为其match指针赋值后，即会调用该函数
+进行合法性检查，当检查失败后，即会返回失败，且说明ipt_table创建失败*/
 	bool (*checkentry)(const char *tablename,
 			   const void *ip,
 			   const struct xt_match *match,
@@ -182,15 +210,22 @@ struct xt_match
 };
 
 /* Registration hooks for targets. */
+/*
+target处理函数，对于SNAT、DNAT即在其target函数里，更新request或者reply方向 ip_conntrack_tuple值
+*/
+
 struct xt_target
 {
-	struct list_head list;
-
+	struct list_head list;//链表，使该match添加到target链表中
+	//target 名称
 	const char name[XT_FUNCTION_MAXNAMELEN-1];
 
 	/* Returns verdict. Argument order changed since 2.6.9, as this
 	   must now handle non-linear skbs, using skb_copy_bits and
 	   skb_ip_make_writable. */
+	   /*
+target处理函数，对于SNAT、DNAT即在其target函数里，更新request或者reply方向 ip_conntrack_tuple值
+*/
 	unsigned int (*target)(struct sk_buff *skb,
 			       const struct net_device *in,
 			       const struct net_device *out,
@@ -202,6 +237,8 @@ struct xt_target
            hook_mask is a bitmask of hooks from which it can be
            called. */
 	/* Should return true or false. */
+	/*合法性检查函数，在创建一个ipt_entry时，在为其target指针赋值后，即会调用该函数
+进行合法性检查，当检查失败后，即会返回失败，且说明ipt_table创建失败*/
 	bool (*checkentry)(const char *tablename,
 			   const void *entry,
 			   const struct xt_target *target,
@@ -209,6 +246,7 @@ struct xt_target
 			   unsigned int hook_mask);
 
 	/* Called when entry of this type deleted. */
+	/*销毁函数，当删除一个规则时调用*/
 	void (*destroy)(const struct xt_target *target, void *targinfo);
 
 	/* Called when userspace align differs from kernel space one */
@@ -231,24 +269,31 @@ struct xt_target
 /* Furniture shopping... */
 struct xt_table
 {
+	/*用于将xt_table连接在一起的链表成员*/
 	struct list_head list;
 
 	/* A unique name... */
+	/*表名*/
 	char name[XT_TABLE_MAXNAMELEN];
 
 	/* What hooks you will enter on */
+	/*该表所感兴趣的hook点*/
 	unsigned int valid_hooks;
 
 	/* Lock for the curtain */
+	/*读写锁*/
 	rwlock_t lock;
 
 	/* Man behind the curtain... */
 	//struct ip6t_table_info *private;
+	/*指针，指向xt_table_info，这个指针指向的xt_table_info才是表的重要成员
+用于存放规则链*/
 	void *private;
 
 	/* Set this to THIS_MODULE if you are a module, otherwise NULL */
+	/* 判断该表是否属于一个模块 */
 	struct module *me;
-
+	/*协议号*/
 	int af;		/* address/protocol family */
 };
 
@@ -258,17 +303,24 @@ struct xt_table
 struct xt_table_info
 {
 	/* Size per table */
+	/*在一个cpu内，该xt_table所包含的所有规则的内存总数(以字节为单位)*/
 	unsigned int size;
 	/* Number of entries: FIXME. --RR */
+	/*规则的个数*/
 	unsigned int number;
 	/* Initial number of entries. Needed for module usage count */
 	unsigned int initial_entries;
 
 	/* Entry points and underflows */
+	/*每条规则链相对于第一条规则链的偏移量*/
 	unsigned int hook_entry[NF_IP_NUMHOOKS];
+	/*这个具体用在什么地方我还没有搞懂，看别人的解释为每一条规则链范围的最大
+上限，不过我看初始化时，其与hook_entry在对应规则链上的值是相等的，目前我在代码里发现对underflow的调用，基本上都是将其与hook_entry在对应规则链上的值设置为
+相同的，还需要深入分析后确认*/
 	unsigned int underflow[NF_IP_NUMHOOKS];
 
 	/* ipt_entry tables: one per CPU */
+	/*每一个cpu里，ipt_entry指针，指向ipt_entry规则的首地址*/
 	char *entries[NR_CPUS];
 };
 

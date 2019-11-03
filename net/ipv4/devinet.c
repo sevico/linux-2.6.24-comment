@@ -366,6 +366,8 @@ static int __inet_insert_ifa(struct in_ifaddr *ifa, struct nlmsghdr *nlh,
 				inet_free_ifa(ifa);
 				return -EINVAL;
 			}
+			//否则这个地址就是第二地址,也就是说,如果第一个节点不是SECONDARY
+			//那么后面增加的IP地址必定是SECONDARY
 			ifa->ifa_flags |= IFA_F_SECONDARY;
 		}
 	}

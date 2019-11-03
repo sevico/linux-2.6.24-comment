@@ -162,23 +162,23 @@ static int dst_discard(struct sk_buff *skb)
 void * dst_alloc(struct dst_ops * ops)
 {
 	struct dst_entry * dst;
-
+	//检查"供应是否紧张"调用回调函数
 	if (ops->gc && atomic_read(&ops->entries) > ops->gc_thresh) {
 		if (ops->gc())
 			return NULL;
 	}
-	dst = kmem_cache_zalloc(ops->kmem_cachep, GFP_ATOMIC);
+	dst = kmem_cache_zalloc(ops->kmem_cachep, GFP_ATOMIC);//分配路由项
 	if (!dst)
 		return NULL;
-	atomic_set(&dst->__refcnt, 0);
-	dst->ops = ops;
-	dst->lastuse = jiffies;
-	dst->path = dst;
-	dst->input = dst->output = dst_discard;
+	atomic_set(&dst->__refcnt, 0);//初始化使用计数
+	dst->ops = ops;//记录路由项函数表
+	dst->lastuse = jiffies;//记录当前时间
+	dst->path = dst;//用于IPSec流量控制
+	dst->input = dst->output = dst_discard; //暂时使接收和发送函数放弃数据包
 #if RT_CACHE_DEBUG >= 2
 	atomic_inc(&dst_total);
 #endif
-	atomic_inc(&ops->entries);
+	atomic_inc(&ops->entries);//递增路由项函数表的计数器
 	return dst;
 }
 

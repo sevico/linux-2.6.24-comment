@@ -36,24 +36,25 @@ static int __init br_init(void)
 		printk(KERN_ERR "bridge: can't register sap for STP\n");
 		return -EADDRINUSE;
 	}
-
+	//调用br_fdb_init进行CAM表的初始化
 	err = br_fdb_init();
 	if (err)
 		goto err_out;
-
+	//调用函数br_netfilter_init，注册网络防火墙相关的钩子函数，主要是实现ebtables相关的功能
 	err = br_netfilter_init();
 	if (err)
 		goto err_out1;
-
+	//调用函数register_netdevice_notifier，向通知链中注册网桥感兴趣的信息
 	err = register_netdevice_notifier(&br_device_notifier);
 	if (err)
 		goto err_out2;
-
+	//调用函数br_netlink_init，进行netlink的初始化
 	err = br_netlink_init();
 	if (err)
 		goto err_out3;
-
+	//调用brioctl_set，设置网桥相关的ioctl回调函数br_ioctl_deviceless_stub
 	brioctl_set(br_ioctl_deviceless_stub);
+	//设置br_handle_frame_hook的回调函数
 	br_handle_frame_hook = br_handle_frame;
 
 	br_fdb_get_hook = br_fdb_get;

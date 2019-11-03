@@ -360,7 +360,7 @@ int fib_detect_death(struct fib_info *fi, int order,
 {
 	struct neighbour *n;
 	int state = NUD_NONE;
-
+	//在全局邻居表中查找邻居结构
 	n = neigh_lookup(&arp_tbl, &fi->fib_nh[0].nh_gw, fi->fib_dev);
 	if (n) {
 		state = n->nud_state;
@@ -753,6 +753,7 @@ struct fib_info *fib_create_info(struct fib_config *cfg)
 		nh->nh_parent = fi;
 	} endfor_nexthops(fi)
 	//根据传递的值，设置fib_metrics的值
+	/* 如果给出了路由属性信信，则通过遍历路由属性信息来确定fib_metrics的值 */
 	if (cfg->fc_mx) {  //如果指定了netlink的属性队列
 		struct nlattr *nla;
 		int remaining;
@@ -776,7 +777,7 @@ struct fib_info *fib_create_info(struct fib_config *cfg)
 
 2.当内核不支持多路径路由时，且应用层传递的fc_map大于0时，则返回出错。
 
-3.当应用层传递的fc_map为0时，则对该fib_info的fib_nh变量的的网关ip、输 
+3.当应用层传递的fc_mp为0时，则对该fib_info的fib_nh变量的的网关ip、输 
 
      出接口、flag等进行赋值。
 
@@ -845,6 +846,9 @@ RT_SCOPE_NOWHERE，并设置nh_dev的值
 
 		/* Local address is added. */
 		//检查跳转次数和网关地址
+		/* 当前添加的是本地路由信息，只可能有一跳，即便是开启了
+			多径路由，下一跳数目不为1则报错，同时本地路由也不需要
+			指定网关，如果指定则报错 */
 		if (nhs != 1 || nh->nh_gw)
 			goto err_inval;
 		//修改跳转范围
@@ -855,6 +859,7 @@ RT_SCOPE_NOWHERE，并设置nh_dev的值
 		if (nh->nh_dev == NULL)
 			goto failure;
 	} else { //路由范围不是本机
+			/* 如果添加的不是本地路由信息，则检查下一跳信息 */
 		change_nexthops(fi) {
 			//检查每一个跳转地址的"合法性"
 			if ((err = fib_check_nh(cfg, fi, nh)) != 0)
@@ -890,6 +895,9 @@ link_it:
 5.程序返回已创建的fib_info变量 
 
 */
+	/* 查找路由条目，返回与当前路由条目精确匹配的条目，
+		若存在，则释放当前创建的新条目，增加已找到的路由条目
+		的引用计数，并返回已找到的旧路由条目 */
 	if ((ofi = fib_find_info(fi)) != NULL) {
 		//若存在，则对原来的fib_info变量的fib_treeref计数加一即可，则可以释放掉新申请的
 		//fib_info变量占用的内存;
@@ -899,17 +907,24 @@ link_it:
 		return ofi;
 	}
 	//若不存在，则将新创建的fib_info变量添加到系统的hash表中。
+		/* 当前路由表中未找到已存在的符合要求的路由条目, 则增加
+		新建路由条目的引用计数 */
 	fi->fib_treeref++;
 	atomic_inc(&fi->fib_clntref);
 	spin_lock_bh(&fib_info_lock);
+	/* 将新建的路由插入到全局路由列表中，其中fib_info_hashfh
+	为散列函数 */
 	hlist_add_head(&fi->fib_hash,
 		       &fib_info_hash[fib_info_hashfn(fi)]);
+		/* 如果指定了源地址，则将源地址插入到全局本地地址列表中 */
 	if (fi->fib_prefsrc) {
 		struct hlist_head *head;
 
 		head = &fib_info_laddrhash[fib_laddr_hashfn(fi->fib_prefsrc)];
 		hlist_add_head(&fi->fib_lhash, head);
 	}
+	/* 将下一跳信息写入全局列表中，由上述知本迭代只进行一次，
+		散列函数为fib_devindex_hashfn() */
 	change_nexthops(fi) {
 		struct hlist_head *head;
 		unsigned int hash;
@@ -952,26 +967,32 @@ int fib_semantic_match(struct list_head *head, const struct flowi *flp,
 		if (fa->fa_tos &&
 		    fa->fa_tos != flp->fl4_tos)
 			continue;
-
+		//接下来检验scope，路由项的范围必须比请求的范围更”窄“才能符合要求，
 		if (fa->fa_scope < flp->fl4_scope)
 			continue;
 		//若fa_tos与fl4_tos的值相等，且fa_scope值大于或者等于传入的fowi结构
 		//变量对应的fl4_scope成员值时，则进一步进行fib_info中的fib_nh类型的
 		// 变量的匹配操作
 		fa->fa_state |= FA_S_ACCESSED;
-
+		//取转发类型错误码
 		err = fib_props[fa->fa_type].error;
 		if (err == 0) {
+			//取得fib_info
 			struct fib_info *fi = fa->fa_info;
-
+			//此标志表明该节点转发不通，直接看下一个
 			if (fi->fib_flags & RTNH_F_DEAD)
 				continue;
 
 			switch (fa->fa_type) {
+			//单目转发
 			case RTN_UNICAST:
+			//本地转发
 			case RTN_LOCAL:
+			//广播转发
 			case RTN_BROADCAST:
+			//任意转发
 			case RTN_ANYCAST:
+			//多目转发
 			case RTN_MULTICAST:
 				//遍历上述b中查找的fib_info结构变量的fib_nh[]数组查找是否有满足要求
 				// 的fib_nh变量
@@ -986,7 +1007,7 @@ int fib_semantic_match(struct list_head *head, const struct flowi *flp,
 				}
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
 				if (nhsel < fi->fib_nhs) {
-					nh_sel = nhsel;
+					nh_sel = nhsel;//转发地址编号赋值
 					goto out_fill_res;
 				}
 #else
@@ -1034,7 +1055,7 @@ int fib_dump_info(struct sk_buff *skb, u32 pid, u32 seq, int event,
 	if (nlh == NULL)
 		return -EMSGSIZE;
 
-	rtm = nlmsg_data(nlh);
+	rtm = nlmsg_data(nlh);  //获得消息指针
 	rtm->rtm_family = AF_INET;
 	rtm->rtm_dst_len = dst_len;
 	rtm->rtm_src_len = 0;
@@ -1047,23 +1068,23 @@ int fib_dump_info(struct sk_buff *skb, u32 pid, u32 seq, int event,
 	rtm->rtm_protocol = fi->fib_protocol;
 
 	if (rtm->rtm_dst_len)
-		NLA_PUT_BE32(skb, RTA_DST, dst);
+		NLA_PUT_BE32(skb, RTA_DST, dst);  //记录路由目标地址到数据包
 
 	if (fi->fib_priority)
-		NLA_PUT_U32(skb, RTA_PRIORITY, fi->fib_priority);
+		NLA_PUT_U32(skb, RTA_PRIORITY, fi->fib_priority);  //记录优先级
 
-	if (rtnetlink_put_metrics(skb, fi->fib_metrics) < 0)
+	if (rtnetlink_put_metrics(skb, fi->fib_metrics) < 0)  //记录负载值
 		goto nla_put_failure;
 
 	if (fi->fib_prefsrc)
-		NLA_PUT_BE32(skb, RTA_PREFSRC, fi->fib_prefsrc);
+		NLA_PUT_BE32(skb, RTA_PREFSRC, fi->fib_prefsrc);//记录源地址
 
 	if (fi->fib_nhs == 1) {
 		if (fi->fib_nh->nh_gw)
-			NLA_PUT_BE32(skb, RTA_GATEWAY, fi->fib_nh->nh_gw);
+			NLA_PUT_BE32(skb, RTA_GATEWAY, fi->fib_nh->nh_gw);//记录网关地址
 
 		if (fi->fib_nh->nh_oif)
-			NLA_PUT_U32(skb, RTA_OIF, fi->fib_nh->nh_oif);
+			NLA_PUT_U32(skb, RTA_OIF, fi->fib_nh->nh_oif);//记录设备ID
 #ifdef CONFIG_NET_CLS_ROUTE
 		if (fi->fib_nh[0].nh_tclassid)
 			NLA_PUT_U32(skb, RTA_FLOW, fi->fib_nh[0].nh_tclassid);
@@ -1074,11 +1095,11 @@ int fib_dump_info(struct sk_buff *skb, u32 pid, u32 seq, int event,
 		struct rtnexthop *rtnh;
 		struct nlattr *mp;
 
-		mp = nla_nest_start(skb, RTA_MULTIPATH);
+		mp = nla_nest_start(skb, RTA_MULTIPATH);//建立多路径属性结构
 		if (mp == NULL)
 			goto nla_put_failure;
 
-		for_nexthops(fi) {
+		for_nexthops(fi) {//根据每一个跳转结构循环建立配置跳转结构保存到数据包
 			rtnh = nla_reserve_nohdr(skb, sizeof(*rtnh));
 			if (rtnh == NULL)
 				goto nla_put_failure;
@@ -1087,7 +1108,7 @@ int fib_dump_info(struct sk_buff *skb, u32 pid, u32 seq, int event,
 			rtnh->rtnh_hops = nh->nh_weight - 1;
 			rtnh->rtnh_ifindex = nh->nh_oif;
 
-			if (nh->nh_gw)
+			if (nh->nh_gw)//记录跳转结构的网关地址到数据包
 				NLA_PUT_BE32(skb, RTA_GATEWAY, nh->nh_gw);
 #ifdef CONFIG_NET_CLS_ROUTE
 			if (nh->nh_tclassid)
@@ -1097,10 +1118,10 @@ int fib_dump_info(struct sk_buff *skb, u32 pid, u32 seq, int event,
 			rtnh->rtnh_len = nlmsg_get_pos(skb) - (void *) rtnh;
 		} endfor_nexthops(fi);
 
-		nla_nest_end(skb, mp);
+		nla_nest_end(skb, mp);//记录全部长度到多路径属性结构中
 	}
 #endif
-	return nlmsg_end(skb, nlh);
+	return nlmsg_end(skb, nlh);//记录全部消息的总长度
 
 nla_put_failure:
 	nlmsg_cancel(skb, nlh);

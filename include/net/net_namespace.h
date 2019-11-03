@@ -38,7 +38,7 @@ extern struct net init_net;
 #else
 #define INIT_NET_NS(net_ns)
 #endif
-
+//网络空间相关的链表，每一个新注册的网络空间，都会添加到该链表中
 extern struct list_head net_namespace_list;
 
 #ifdef CONFIG_NET
@@ -112,7 +112,7 @@ static inline struct net *maybe_get_net(struct net *net)
 	return net;
 }
 #endif
-
+//遍历链表net_namespace_list中的每一个网络空间对应的数据结构
 #define for_each_net(VAR)				\
 	list_for_each_entry(VAR, &net_namespace_list, list)
 

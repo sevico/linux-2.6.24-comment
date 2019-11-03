@@ -159,7 +159,7 @@ struct ifreq
 	{
 		char	ifrn_name[IFNAMSIZ];		/* if name, e.g. "en0" */
 	} ifr_ifrn;
-	
+	//下层函数根据ioctl命令字来解析此联合的类型和值
 	union {
 		struct	sockaddr ifru_addr;
 		struct	sockaddr ifru_dstaddr;

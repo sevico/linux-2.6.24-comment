@@ -218,12 +218,12 @@ enum
 
 enum rt_scope_t
 {
-	RT_SCOPE_UNIVERSE=0,
+	RT_SCOPE_UNIVERSE=0,  /* 表示在空间中的任何位置 */
 /* User defined values  */
 	RT_SCOPE_SITE=200,
-	RT_SCOPE_LINK=253,
-	RT_SCOPE_HOST=254,
-	RT_SCOPE_NOWHERE=255
+	RT_SCOPE_LINK=253, /* 与本地直接相连的地址 */
+	RT_SCOPE_HOST=254, /* 本地地址 */
+	RT_SCOPE_NOWHERE=255 /* 不可达的地址 */
 };
 
 /* rtm_flags */

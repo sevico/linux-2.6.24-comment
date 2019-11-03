@@ -272,7 +272,9 @@ nf_nat_adjust(unsigned int hooknum,
 }
 
 /* We must be after connection tracking and before packet filtering. */
-
+//实现nat的netfilter
+//其中NF_IP_PRE_ROUTING、NF_IP_LOCAL_OUT为目的地址转发，
+//而NF_IP_POST_ROUTING、NF_IP_LOCAL_IN为源地址转换。
 static struct nf_hook_ops nf_nat_ops[] = {
 	/* Before packet filtering, change destination */
 	{

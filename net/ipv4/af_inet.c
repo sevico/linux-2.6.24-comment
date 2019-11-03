@@ -191,13 +191,13 @@ int inet_listen(struct socket *sock, int backlog)
 	unsigned char old_state;
 	int err;
 
-	lock_sock(sk);
+	lock_sock(sk);//加锁,如果sock锁被其他进程占用了,当前进程睡眠等待唤醒
 
 	err = -EINVAL;
 	if (sock->state != SS_UNCONNECTED || sock->type != SOCK_STREAM)
-		goto out;
+		goto out;//检查socket的状态和类型
 
-	old_state = sk->sk_state;
+	old_state = sk->sk_state;//记录原来的状态
 	if (!((1 << old_state) & (TCPF_CLOSE | TCPF_LISTEN)))
 		goto out;
 
@@ -205,15 +205,15 @@ int inet_listen(struct socket *sock, int backlog)
 	 * we can only allow the backlog to be adjusted.
 	 */
 	if (old_state != TCP_LISTEN) {
-		err = inet_csk_listen_start(sk, backlog);
+		err = inet_csk_listen_start(sk, backlog);//建立监听环境
 		if (err)
 			goto out;
 	}
-	sk->sk_max_ack_backlog = backlog;
+	sk->sk_max_ack_backlog = backlog;//记录下连接数
 	err = 0;
 
 out:
-	release_sock(sk);
+	release_sock(sk);//解锁,并唤醒sock锁上的其他进程
 	return err;
 }
 

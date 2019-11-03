@@ -41,7 +41,7 @@ struct dst_entry
 	struct dst_entry	*child;
 	struct net_device       *dev;
 	short			error;
-	short			obsolete;
+	short			obsolete;//表示结构用途
 	int			flags;
 #define DST_HOST		1
 #define DST_NOXFRM		2
@@ -57,10 +57,10 @@ struct dst_entry
 	struct dst_entry	*path;
 
 	unsigned long		rate_last;	/* rate limiting for ICMP */
-	unsigned long		rate_tokens;
+	unsigned long		rate_tokens;//已经发送的ICMP定向消息
 
 	struct neighbour	*neighbour;
-	struct hh_cache		*hh;
+	struct hh_cache		*hh;//链路层头部缓存
 	struct xfrm_state	*xfrm;
 
 	int			(*input)(struct sk_buff*);

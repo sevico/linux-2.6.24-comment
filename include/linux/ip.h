@@ -21,10 +21,10 @@
 
 #define IPTOS_TOS_MASK		0x1E
 #define IPTOS_TOS(tos)		((tos)&IPTOS_TOS_MASK)
-#define	IPTOS_LOWDELAY		0x10
-#define	IPTOS_THROUGHPUT	0x08
-#define	IPTOS_RELIABILITY	0x04
-#define	IPTOS_MINCOST		0x02
+#define	IPTOS_LOWDELAY		0x10 /* 最小延时 */
+#define	IPTOS_THROUGHPUT	0x08 /* 最大吞吐量 */
+#define	IPTOS_RELIABILITY	0x04 /* 最高可靠性 */
+#define	IPTOS_MINCOST		0x02 /* 最小消费 */
 
 #define IPTOS_PREC_MASK		0xE0
 #define IPTOS_PREC(tos)		((tos)&IPTOS_PREC_MASK)

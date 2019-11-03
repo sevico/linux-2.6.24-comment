@@ -50,23 +50,25 @@ extern void netfilter_init(void);
 struct sk_buff;
 struct net_device;
 
-typedef unsigned int nf_hookfn(unsigned int hooknum,
-			       struct sk_buff *skb,
-			       const struct net_device *in,
-			       const struct net_device *out,
+typedef unsigned int nf_hookfn(unsigned int hooknum,//hook点
+			       struct sk_buff *skb,//数据包
+			       const struct net_device *in,//数据包入口设备
+			       const struct net_device *out,//数据包出口设备
+			       //是个函数指针，当所有的该 HOOK 点的所有登记函数调用完后
+			       //调用该函数
 			       int (*okfn)(struct sk_buff *));
 
 struct nf_hook_ops
 {
-	struct list_head list;
+	struct list_head list;//链表结构，实现hook函数链接
 
 	/* User fills in from here down. */
-	nf_hookfn *hook;
-	struct module *owner;
-	int pf;
-	int hooknum;
+	nf_hookfn *hook;//hook处理函数
+	struct module *owner;//模块所属
+	int pf;//协议号
+	int hooknum;//hook点
 	/* Hooks are ordered in ascending priority. */
-	int priority;
+	int priority;//优先级
 };
 
 struct nf_sockopt_ops

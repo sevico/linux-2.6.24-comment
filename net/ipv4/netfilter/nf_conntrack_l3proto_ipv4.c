@@ -185,6 +185,7 @@ static unsigned int ipv4_conntrack_local(unsigned int hooknum,
 
 /* Connection tracking may drop packets, but never alters them, so
    make it the first hook. */
+//连接跟踪模块对应的nf
 static struct nf_hook_ops ipv4_conntrack_ops[] = {
 	{
 		.hook		= ipv4_conntrack_defrag,
